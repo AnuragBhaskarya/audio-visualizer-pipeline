@@ -23,6 +23,53 @@ def fit_to_16_9(img):
         
     return img.resize((1920, 1080), Image.Resampling.LANCZOS)
 
+def draw_red_no_copyright_banner(img, font_path):
+    """
+    Draws a vibrant red diagonal corner banner badge in the top-right corner with 'NO COPYRIGHT' text.
+    Matches the exact design aesthetic of YouTube thumbnail badges.
+    """
+    img = img.convert("RGBA")
+    w, h = img.size
+    
+    banner_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(banner_layer)
+    
+    banner_width = 620
+    banner_height = 220
+    
+    p1 = (w - banner_width, 0)
+    p2 = (w, 0)
+    p3 = (w, banner_height)
+    
+    red_color = (211, 18, 18, 255)  # Vibrant Red #D31212
+    draw.polygon([p1, p2, p3], fill=red_color)
+    
+    angle_deg = -np.degrees(np.arctan2(banner_height, banner_width))
+    
+    try:
+        font_nc = ImageFont.truetype(font_path, 42)
+    except IOError:
+        font_nc = ImageFont.load_default()
+        
+    text = "NO COPYRIGHT"
+    
+    txt_img = Image.new("RGBA", (500, 100), (0, 0, 0, 0))
+    txt_draw = ImageDraw.Draw(txt_img)
+    txt_draw.text((250, 50), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
+    
+    rotated_txt = txt_img.rotate(angle_deg, resample=Image.Resampling.BICUBIC, expand=True)
+    
+    banner_center_x = w - (banner_width / 3.0) + 20
+    banner_center_y = (banner_height / 3.0) - 10
+    
+    rx, ry = rotated_txt.size
+    paste_pos = (int(banner_center_x - rx / 2.0), int(banner_center_y - ry / 2.0))
+    
+    banner_layer.paste(rotated_txt, paste_pos, rotated_txt)
+    
+    img = Image.alpha_composite(img, banner_layer)
+    return img.convert("RGB")
+
 def draw_text_with_stroke(img, text, position, font, stroke_color="white", stroke_width=6, shadow_color="black", shadow_blur=25, shadow_intensity=2):
     """Draws hollow text (stroke ONLY, 100% transparent interior) with a soft blurred drop shadow behind the stroke."""
     img = img.convert("RGBA")
@@ -189,7 +236,8 @@ def apply_pinch_warp(img, amount=0.55):
     final_rgb = cv2.cvtColor(final_cv, cv2.COLOR_BGR2RGB)
     return Image.fromarray(final_rgb)
 
-def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_path="final_bg.jpg"):
+def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_path="final_bg.jpg", no_copyright_output_path="no_copyright_bg.jpg"):
+    """Generates both Version 1 (Final BG) and Version 2 (Red NO COPYRIGHT Banner BG)."""
     t_start = time.time()
     bg_stats = {}
     
@@ -225,18 +273,22 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
             font_title = temp_title_font
             
         font_sub = ImageFont.truetype(font_path, 85)
-        font_user = ImageFont.truetype(font_path, 35)  # LEMONMILK-Bold for username!
+        font_user = ImageFont.truetype(font_path, 35)
     except IOError as e:
         print(f"Error loading fonts: {e}")
+        font_path = None
         font_title = font_sub = font_user = ImageFont.load_default()
     
     w, h = img.size
     center_x = w // 2
     center_y = h // 2
+
+    # --- VERSION 1: FINAL FULL TYPOGRAPHY BG ---
+    img_v1 = img.copy()
     
     # 1. Main Song Title (Solid White with Drop Shadow)
-    img = draw_text_with_blurred_shadow(
-        img, 
+    img_v1 = draw_text_with_blurred_shadow(
+        img_v1, 
         song_name.upper(), 
         (center_x, center_y + 45), 
         font_title, 
@@ -248,8 +300,8 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     )
     
     # 2. Subtitle Text (Hollow Outlined Stroke + Blurred Drop Shadow)
-    img = draw_text_with_stroke(
-        img, 
+    img_v1 = draw_text_with_stroke(
+        img_v1, 
         subtitle.upper(), 
         (center_x, center_y + 135), 
         font_sub, 
@@ -261,17 +313,17 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     )
     
     # 3. Hard Light Tapered Separator Line (ON TOP of everything)
-    img = draw_hard_light_line(img, (center_x, center_y + 80), width=950, height=14)
+    img_v1 = draw_hard_light_line(img_v1, (center_x, center_y + 80), width=950, height=14)
     bg_stats["typography"] = time.time() - t0
     
     t0 = time.time()
-    img = apply_pinch_warp(img, amount=0.55)
+    img_v1 = apply_pinch_warp(img_v1, amount=0.55)
     bg_stats["pinch_warp"] = time.time() - t0
     
     t0 = time.time()
     # 4. Username Text (LEMONMILK-Bold + Hard Light Blend + Shadow)
-    img = draw_text_with_blurred_shadow(
-        img, 
+    img_v1 = draw_text_with_blurred_shadow(
+        img_v1, 
         username.upper(), 
         (center_x, h - 50), 
         font_user, 
@@ -282,7 +334,14 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     )
     bg_stats["username"] = time.time() - t0
     
-    img.save(output_path, quality=98)
+    img_v1.save(output_path, quality=98)
+
+    # --- VERSION 2: RED NO COPYRIGHT DIAGONAL BANNER BG ---
+    img_v2 = img.copy()
+    img_v2 = apply_pinch_warp(img_v2, amount=0.55)
+    img_v2 = draw_red_no_copyright_banner(img_v2, font_path)
+    img_v2.save(no_copyright_output_path, quality=98)
+    
     bg_stats["total"] = time.time() - t_start
     
     print("\n[BENCHMARK] Background Generation Breakdown:")
@@ -293,7 +352,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     print(f"  • Username Layer:         {bg_stats['username']:.4f}s")
     print(f"  TOTAL BG TIME:            {bg_stats['total']:.4f}s\n")
     
-    return output_path, bg_stats
+    return output_path, no_copyright_output_path, bg_stats
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Create 16:9 Audio Visualizer Background")

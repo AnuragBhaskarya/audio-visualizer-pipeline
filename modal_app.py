@@ -53,29 +53,37 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
     temp_img_path = "/tmp/modal_input_img.jpg"
     temp_audio_path = "/tmp/modal_input_audio.mp3"
     temp_out_path = "/tmp/modal_output.mp4"
+    temp_no_copyright_path = "/tmp/modal_no_copyright.jpg"
 
     with open(temp_img_path, "wb") as f:
         f.write(image_bytes)
     with open(temp_audio_path, "wb") as f:
         f.write(audio_bytes)
 
-    output_path, stats = run_pipeline(
+    out_video, final_bg_file, no_copyright_file, stats = run_pipeline(
         image_path=temp_img_path,
         audio_path=temp_audio_path,
         song_name=song_name,
         subtitle=subtitle,
         username=username,
-        output_video=temp_out_path
+        output_video=temp_out_path,
+        no_copyright_path=temp_no_copyright_path
     )
 
     with open(temp_out_path, "rb") as f:
         video_bytes = f.read()
 
-    for p in [temp_img_path, temp_audio_path, temp_out_path]:
+    with open(final_bg_file, "rb") as f:
+        final_bg_bytes = f.read()
+
+    with open(no_copyright_file, "rb") as f:
+        no_copyright_bg_bytes = f.read()
+
+    for p in [temp_img_path, temp_audio_path, temp_out_path, final_bg_file, no_copyright_file]:
         if os.path.exists(p):
             os.remove(p)
 
-    return video_bytes, stats
+    return video_bytes, final_bg_bytes, no_copyright_bg_bytes, stats
 
 @app.function(
     image=image,
@@ -86,7 +94,7 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
 def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes, song_name: str, subtitle: str, username: str):
     """
     Autonomous Modal Background Task.
-    Executes 16-core video rendering and sends the final .mp4 video & benchmark report directly to Telegram!
+    Executes 16-core video rendering and sends 2 Background Images + final .mp4 video & benchmark report directly to Telegram!
     """
     import os
     import sys
@@ -117,23 +125,53 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
     asyncio.run(_send_status())
 
     print("[LOG] Triggering 16-Core Parallel Cloud Rendering function...")
-    video_bytes, stats = render_visualizer_modal.remote(
+    video_bytes, final_bg_bytes, no_copyright_bg_bytes, stats = render_visualizer_modal.remote(
         image_bytes=image_bytes,
         audio_bytes=audio_bytes,
         song_name=song_name,
         subtitle=subtitle,
         username=username
     )
-    print(f"[LOG] Rendering complete! Received {len(video_bytes)} bytes of MP4 data.")
+    print(f"[LOG] Rendering complete! Received {len(video_bytes)} bytes MP4, {len(final_bg_bytes)} bytes Final BG, {len(no_copyright_bg_bytes)} bytes No Copyright BG.")
 
     temp_out_path = f"/tmp/modal_out_{chat_id}.mp4"
+    temp_final_bg_path = f"/tmp/modal_final_bg_{chat_id}.jpg"
+    temp_no_copyright_path = f"/tmp/modal_nc_bg_{chat_id}.jpg"
+
     with open(temp_out_path, "wb") as f:
         f.write(video_bytes)
+    with open(temp_final_bg_path, "wb") as f:
+        f.write(final_bg_bytes)
+    with open(temp_no_copyright_path, "wb") as f:
+        f.write(no_copyright_bg_bytes)
 
-    async def _send_video_and_report():
+    async def _send_all_media():
         try:
             async with Bot(token=bot_token) as tg_bot:
-                print(f"[LOG] Uploading video ({len(video_bytes)} bytes) to Telegram Chat ID {chat_id}...")
+                # 1. Send Final Edit Background Photo
+                print(f"[LOG] Uploading Photo 1: Final Edit Background to Telegram Chat ID {chat_id}...")
+                with open(temp_final_bg_path, "rb") as f1:
+                    await tg_bot.send_photo(
+                        chat_id=chat_id,
+                        photo=f1,
+                        caption=f"🖼️ <b>Final Background Edit</b>\n🎵 <i>{song_name}</i> • {subtitle}",
+                        parse_mode="HTML"
+                    )
+                print("[LOG SUCCESS] Photo 1 delivered!")
+
+                # 2. Send Red NO COPYRIGHT Thumbnail Background Photo
+                print(f"[LOG] Uploading Photo 2: Red NO COPYRIGHT Thumbnail Background to Telegram Chat ID {chat_id}...")
+                with open(temp_no_copyright_path, "rb") as f2:
+                    await tg_bot.send_photo(
+                        chat_id=chat_id,
+                        photo=f2,
+                        caption="🚩 <b>No Copyright Thumbnail Background</b>\n✨ Clean edit with top-right diagonal badge",
+                        parse_mode="HTML"
+                    )
+                print("[LOG SUCCESS] Photo 2 delivered!")
+
+                # 3. Send 1080p 60 FPS Audio Visualizer Video
+                print(f"[LOG] Uploading Video to Telegram Chat ID {chat_id}...")
                 with open(temp_out_path, "rb") as vf:
                     await tg_bot.send_video(
                         chat_id=chat_id,
@@ -148,8 +186,9 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
                         parse_mode="HTML",
                         supports_streaming=True
                     )
-                print("[LOG SUCCESS] Video successfully delivered to Telegram!")
+                print("[LOG SUCCESS] Video delivered!")
 
+                # 4. Send detailed performance benchmark report
                 benchmark_msg = bot.format_benchmark_report({"song": song_name}, stats)
                 print("[LOG] Sending performance benchmark report to Telegram...")
                 await tg_bot.send_message(
@@ -157,17 +196,19 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
                     text=benchmark_msg,
                     parse_mode="HTML"
                 )
-                print("[LOG SUCCESS] Performance benchmark report delivered to Telegram!")
+                print("[LOG SUCCESS] Performance benchmark report delivered!")
+
         except Exception as e:
-            print(f"[CRITICAL ERROR] Failed sending video/report to Telegram: {e}")
+            print(f"[CRITICAL ERROR] Failed sending media to Telegram: {e}")
             traceback.print_exc()
 
-    asyncio.run(_send_video_and_report())
+    asyncio.run(_send_all_media())
 
-    # Clean up temp file
-    if os.path.exists(temp_out_path):
-        os.remove(temp_out_path)
-        print(f"[LOG CLEANUP] Removed temporary video file: {temp_out_path}")
+    # Clean up temp files
+    for p in [temp_out_path, temp_final_bg_path, temp_no_copyright_path]:
+        if os.path.exists(p):
+            os.remove(p)
+            print(f"[LOG CLEANUP] Removed temporary file: {p}")
 
     print("=" * 60)
     print("MODAL BACKGROUND TASK COMPLETED FINISHED")

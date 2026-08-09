@@ -5,9 +5,9 @@ import argparse
 from make_bg import create_background
 from visualizer import build_visualizer
 
-def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_video="output_final.mp4"):
+def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_video="output_final.mp4", no_copyright_path="temp_no_copyright_bg.jpg"):
     """
-    Executes the full Audio Visualizer Pipeline and returns timing benchmark stats.
+    Executes the full Audio Visualizer Pipeline and returns output video, background images, and timing benchmark stats.
     """
     t_pipe_start = time.time()
     
@@ -30,14 +30,15 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
     temp_bg_path = "temp_generated_bg.jpg"
     
     try:
-        # Step 1: Generate dynamic background
-        print("\n[STEP 1/2] Generating background image...")
-        _, bg_stats = create_background(
+        # Step 1: Generate dynamic background variants
+        print("\n[STEP 1/2] Generating background image variants...")
+        _, _, bg_stats = create_background(
             input_path=image_path,
             song_name=song_name,
             subtitle=subtitle,
             username=username,
-            output_path=temp_bg_path
+            output_path=temp_bg_path,
+            no_copyright_output_path=no_copyright_path
         )
         
         # Step 2: Render audio visualizer video
@@ -64,11 +65,10 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
         print(f"  • Video Output File:      {output_video}")
         print("=" * 65)
         
-        return output_video, pipeline_stats
+        return output_video, temp_bg_path, no_copyright_path, pipeline_stats
 
     finally:
-        if os.path.exists(temp_bg_path):
-            os.remove(temp_bg_path)
+        pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full Audio Visualizer Pipeline")
