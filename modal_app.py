@@ -115,16 +115,17 @@ async def telegram_webhook(request_json: dict):
 
 @app.local_entrypoint()
 def set_webhook():
-    """Local entrypoint to automatically register Modal Webhook URL with Telegram API."""
+    """Local entrypoint to register deployed Modal Production Webhook URL with Telegram API."""
     import httpx
     from dotenv import load_dotenv
     load_dotenv()
     
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
-    webhook_url = telegram_webhook.get_web_url()
+    # Target deployed production URL
+    webhook_url = "https://dekamukul013--audio-visualizer-pipeline-telegram-webhook.modal.run"
     
     print("=" * 60)
-    print(f"Modal Webhook URL: {webhook_url}")
+    print(f"Production Modal Webhook URL: {webhook_url}")
     print("Registering Webhook URL with Telegram API...")
     
     resp = httpx.post(
