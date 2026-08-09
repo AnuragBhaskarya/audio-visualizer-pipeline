@@ -25,47 +25,37 @@ def fit_to_16_9(img):
 
 def draw_red_no_copyright_banner(img, font_path):
     """
-    Draws a vibrant red diagonal corner banner badge in the top-right corner with 'NO COPYRIGHT' text.
-    Matches the exact design aesthetic of YouTube thumbnail badges.
+    Draws the exact red corner banner matching s5qhq2IT2Oc-HD.jpg:
+    - Pure solid vibrant red polygon in top-right corner.
+    - Clean HORIZONTAL (un-rotated) bold 'NO COPYRIGHT' text.
     """
     img = img.convert("RGBA")
-    w, h = img.size
+    w, h = img.size  # 1920 x 1080
     
     banner_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(banner_layer)
     
-    banner_width = 620
-    banner_height = 220
+    top_x = w - 650     # 1270
+    right_y = 230       # 230
     
-    p1 = (w - banner_width, 0)
+    p1 = (top_x, 0)
     p2 = (w, 0)
-    p3 = (w, banner_height)
+    p3 = (w, right_y)
     
-    red_color = (211, 18, 18, 255)  # Vibrant Red #D31212
+    red_color = (211, 18, 18, 255)  # Vibrant Crimson Red #D31212
     draw.polygon([p1, p2, p3], fill=red_color)
     
-    angle_deg = -np.degrees(np.arctan2(banner_height, banner_width))
-    
     try:
-        font_nc = ImageFont.truetype(font_path, 42)
+        font_nc = ImageFont.truetype(font_path, 46)
     except IOError:
         font_nc = ImageFont.load_default()
         
     text = "NO COPYRIGHT"
     
-    txt_img = Image.new("RGBA", (500, 100), (0, 0, 0, 0))
-    txt_draw = ImageDraw.Draw(txt_img)
-    txt_draw.text((250, 50), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
+    text_x = w - 280
+    text_y = 70
     
-    rotated_txt = txt_img.rotate(angle_deg, resample=Image.Resampling.BICUBIC, expand=True)
-    
-    banner_center_x = w - (banner_width / 3.0) + 20
-    banner_center_y = (banner_height / 3.0) - 10
-    
-    rx, ry = rotated_txt.size
-    paste_pos = (int(banner_center_x - rx / 2.0), int(banner_center_y - ry / 2.0))
-    
-    banner_layer.paste(rotated_txt, paste_pos, rotated_txt)
+    draw.text((text_x, text_y), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
     
     img = Image.alpha_composite(img, banner_layer)
     return img.convert("RGB")
