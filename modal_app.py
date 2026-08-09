@@ -27,6 +27,7 @@ image = (
     .add_local_file("visualizer.py", "/root/visualizer.py")
     .add_local_file("main.py", "/root/main.py")
     .add_local_file("LEMONMILK-Bold.otf", "/root/LEMONMILK-Bold.otf")
+    .add_local_file("assets/Milker.otf", "/root/assets/Milker.otf")
     .add_local_file("bot.py", "/root/bot.py")
 )
 
