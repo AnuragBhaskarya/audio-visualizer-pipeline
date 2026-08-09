@@ -80,7 +80,7 @@ def render_chunk(args):
     r_shifted = np.empty((target_h, target_w), dtype=np.uint8)
     b_shifted = np.empty((target_h, target_w), dtype=np.uint8)
     
-    total_frames = _worker_bars.shape[1]
+    total_frames = _worker_bars.shape[0]
     total_duration = total_frames / fps
 
     for frame_idx in range(start_frame, end_frame):
