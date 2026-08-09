@@ -26,9 +26,9 @@ def fit_to_16_9(img):
 def draw_red_no_copyright_banner(img, font_path):
     """
     Draws a sleek red ribbon banner using Milker.otf font:
-    - Straight bottom edge with subtle rightward tilt (108px left -> 125px right).
+    - Straight bottom edge with subtle rightward tilt (116px left -> 136px right).
     - Tilted left edge.
-    - Large bold 'NO COPYRIGHT' text filling the ribbon box cleanly.
+    - Large bold 'NO COPYRIGHT' text (74px) filling the ribbon box cleanly.
     """
     img = img.convert("RGBA")
     w, h = img.size  # 1920 x 1080
@@ -37,10 +37,10 @@ def draw_red_no_copyright_banner(img, font_path):
     draw = ImageDraw.Draw(banner_layer)
     
     # 4 Polygon vertices
-    p_top_left = (w - 710, 0)         # (1210, 0)
+    p_top_left = (w - 750, 0)         # (1170, 0)
     p_top_right = (w, 0)              # (1920, 0)
-    p_bottom_right = (w, 125)         # Right height = 125px
-    p_bottom_left = (w - 645, 108)    # Left height = 108px (subtle tilt)
+    p_bottom_right = (w, 136)         # Right height = 136px
+    p_bottom_left = (w - 680, 116)    # Left height = 116px (subtle tilt)
     
     polygon_points = [p_top_left, p_top_right, p_bottom_right, p_bottom_left]
     
@@ -53,17 +53,17 @@ def draw_red_no_copyright_banner(img, font_path):
         milker_font_path = "/home/so9ic/coding/Cyber/audio_visualizer/assets/Milker.otf"
         
     try:
-        font_nc = ImageFont.truetype(milker_font_path, 66)
+        font_nc = ImageFont.truetype(milker_font_path, 74)
     except IOError:
         try:
-            font_nc = ImageFont.truetype(font_path, 60)
+            font_nc = ImageFont.truetype(font_path, 68)
         except IOError:
             font_nc = ImageFont.load_default()
         
     text = "NO COPYRIGHT"
     
-    center_x = w - 315
-    center_y = 54
+    center_x = w - 330
+    center_y = 58
     
     draw.text((center_x, center_y), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
     
@@ -237,7 +237,7 @@ def apply_pinch_warp(img, amount=0.55):
     return Image.fromarray(final_rgb)
 
 def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_path="final_bg.jpg", no_copyright_output_path="no_copyright_bg.jpg"):
-    """Generates both Version 1 (Final BG) and Version 2 (Milker Font Red NO COPYRIGHT Ribbon BG)."""
+    """Generates both Version 1 (Final Full Edit BG) and Version 2 (Full Edit BG + Red NO COPYRIGHT Ribbon)."""
     t_start = time.time()
     bg_stats = {}
     
@@ -283,7 +283,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     center_x = w // 2
     center_y = h // 2
 
-    # --- VERSION 1: FINAL FULL TYPOGRAPHY BG ---
+    # --- VERSION 1: FINAL FULL EDIT TYPOGRAPHY BG ---
     img_v1 = img.copy()
     
     # 1. Main Song Title (Solid White with Drop Shadow)
@@ -336,10 +336,8 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     
     img_v1.save(output_path, quality=98)
 
-    # --- VERSION 2: MILKER FONT RED NO COPYRIGHT RIBBON BG ---
-    img_v2 = img.copy()
-    img_v2 = apply_pinch_warp(img_v2, amount=0.55)
-    img_v2 = draw_red_no_copyright_banner(img_v2, font_path)
+    # --- VERSION 2: FULL EDIT BG + RED NO COPYRIGHT RIBBON ---
+    img_v2 = draw_red_no_copyright_banner(img_v1.copy(), font_path)
     img_v2.save(no_copyright_output_path, quality=98)
     
     bg_stats["total"] = time.time() - t_start
