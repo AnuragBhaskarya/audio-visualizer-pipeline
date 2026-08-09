@@ -90,24 +90,33 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
     """
     import os
     import sys
+    import traceback
+    import asyncio
     sys.path.append("/root")
     from telegram import Bot
-    import asyncio
     import bot
 
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    tg_bot = Bot(token=bot_token)
+    print("=" * 60)
+    print(f"MODAL BACKGROUND TASK STARTED for Chat ID {chat_id}")
+    print("=" * 60)
 
-    print(f"Modal Background Task: Processing video for Chat ID {chat_id}...")
+    async def _send_status():
+        try:
+            async with Bot(token=bot_token) as tg_bot:
+                await tg_bot.send_message(
+                    chat_id=chat_id,
+                    text="⚡ <b>Executing 16-Core Parallel Cloud Rendering...</b>\nPlease wait ~10 seconds...",
+                    parse_mode="HTML"
+                )
+                print("[LOG] Successfully updated status message in Telegram.")
+        except Exception as e:
+            print(f"[LOG ERROR] Updating Telegram status message: {e}")
+            traceback.print_exc()
 
-    # 1. Update Telegram Status
-    asyncio.run(tg_bot.send_message(
-        chat_id=chat_id,
-        text="⚡ <b>Executing 16-Core Parallel Cloud Rendering...</b>\nPlease wait ~10 seconds...",
-        parse_mode="HTML"
-    ))
+    asyncio.run(_send_status())
 
-    # 2. Render Video via 16-Core Cloud Function
+    print("[LOG] Triggering 16-Core Parallel Cloud Rendering function...")
     video_bytes, stats = render_visualizer_modal.remote(
         image_bytes=image_bytes,
         audio_bytes=audio_bytes,
@@ -115,39 +124,54 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
         subtitle=subtitle,
         username=username
     )
+    print(f"[LOG] Rendering complete! Received {len(video_bytes)} bytes of MP4 data.")
 
     temp_out_path = f"/tmp/modal_out_{chat_id}.mp4"
     with open(temp_out_path, "wb") as f:
         f.write(video_bytes)
 
-    # 3. Send final video to Telegram
-    print(f"Uploading video to Telegram Chat ID {chat_id}...")
-    with open(temp_out_path, "rb") as vf:
-        asyncio.run(tg_bot.send_video(
-            chat_id=chat_id,
-            video=vf,
-            caption=(
-                f"🎬 <b>Audio Visualizer Ready!</b>\n\n"
-                f"🎵 <b>Song:</b> {song_name}\n"
-                f"✨ <b>Subtitle:</b> {subtitle}\n"
-                f"👤 <b>Creator:</b> {username}\n"
-                f"⚡ 60 FPS • 1080p • Peak Audio Reactive"
-            ),
-            parse_mode="HTML",
-            supports_streaming=True
-        ))
+    async def _send_video_and_report():
+        try:
+            async with Bot(token=bot_token) as tg_bot:
+                print(f"[LOG] Uploading video ({len(video_bytes)} bytes) to Telegram Chat ID {chat_id}...")
+                with open(temp_out_path, "rb") as vf:
+                    await tg_bot.send_video(
+                        chat_id=chat_id,
+                        video=vf,
+                        caption=(
+                            f"🎬 <b>Audio Visualizer Ready!</b>\n\n"
+                            f"🎵 <b>Song:</b> {song_name}\n"
+                            f"✨ <b>Subtitle:</b> {subtitle}\n"
+                            f"👤 <b>Creator:</b> {username}\n"
+                            f"⚡ 60 FPS • 1080p • Peak Audio Reactive"
+                        ),
+                        parse_mode="HTML",
+                        supports_streaming=True
+                    )
+                print("[LOG SUCCESS] Video successfully delivered to Telegram!")
 
-    # 4. Send performance benchmark report
-    benchmark_msg = bot.format_benchmark_report({"song": song_name}, stats)
-    asyncio.run(tg_bot.send_message(
-        chat_id=chat_id,
-        text=benchmark_msg,
-        parse_mode="HTML"
-    ))
+                benchmark_msg = bot.format_benchmark_report({"song": song_name}, stats)
+                print("[LOG] Sending performance benchmark report to Telegram...")
+                await tg_bot.send_message(
+                    chat_id=chat_id,
+                    text=benchmark_msg,
+                    parse_mode="HTML"
+                )
+                print("[LOG SUCCESS] Performance benchmark report delivered to Telegram!")
+        except Exception as e:
+            print(f"[CRITICAL ERROR] Failed sending video/report to Telegram: {e}")
+            traceback.print_exc()
 
-    # Clean up temp output
+    asyncio.run(_send_video_and_report())
+
+    # Clean up temp file
     if os.path.exists(temp_out_path):
         os.remove(temp_out_path)
+        print(f"[LOG CLEANUP] Removed temporary video file: {temp_out_path}")
+
+    print("=" * 60)
+    print("MODAL BACKGROUND TASK COMPLETED FINISHED")
+    print("=" * 60)
 
 @app.function(
     image=image,
