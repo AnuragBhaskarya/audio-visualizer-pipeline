@@ -17,6 +17,9 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "6371392863"))
 
+# Global handle for Modal 16-Core Cloud Function (set dynamically by modal_app.py)
+MODAL_RENDER_FUNC = None
+
 # Logging Setup
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -55,7 +58,7 @@ def format_status_message(session):
         "───────────────────────────────\n"
     )
     if session['image'] and session['audio'] and session['song']:
-        msg += "🚀 <b>All inputs collected! Triggering render pipeline...</b>"
+        msg += "🚀 <b>All inputs collected! Triggering 16-Core Modal Cloud Render...</b>"
     else:
         msg += "👉 Send any missing file/text in any order! Use /reset to clear."
     return msg
@@ -218,26 +221,48 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
     session = user_sessions[chat_id]
     status_msg = await context.bot.send_message(
         chat_id=chat_id,
-        text="⚡ <b>Starting Audio Visualizer Pipeline...</b>\nRendering 1080p 60FPS video. Please wait...",
+        text="⚡ <b>Waking up 16-Core Modal Cloud Container...</b>\nRendering 1080p 60FPS video. Please wait...",
         parse_mode="HTML"
     )
     
     output_video_path = f"downloads/output_{chat_id}.mp4"
     
     try:
-        from main import run_pipeline
-        
-        loop = asyncio.get_running_loop()
-        output_video_path, stats = await loop.run_in_executor(
-            None,
-            run_pipeline,
-            session["image"],
-            session["audio"],
-            session["song"],
-            session["sub"],
-            session["user"],
-            output_video_path
-        )
+        if MODAL_RENDER_FUNC is not None:
+            # Execute on 16-Core Modal Cloud Container!
+            logger.info("Executing video rendering on 16-Core Modal Cloud Function...")
+            with open(session["image"], "rb") as f:
+                img_bytes = f.read()
+            with open(session["audio"], "rb") as f:
+                aud_bytes = f.read()
+                
+            loop = asyncio.get_running_loop()
+            video_bytes, stats = await loop.run_in_executor(
+                None,
+                lambda: MODAL_RENDER_FUNC.remote(
+                    image_bytes=img_bytes,
+                    audio_bytes=aud_bytes,
+                    song_name=session["song"],
+                    subtitle=session["sub"],
+                    username=session["user"]
+                )
+            )
+            with open(output_video_path, "wb") as f:
+                f.write(video_bytes)
+        else:
+            # Fallback local execution
+            from main import run_pipeline
+            loop = asyncio.get_running_loop()
+            output_video_path, stats = await loop.run_in_executor(
+                None,
+                run_pipeline,
+                session["image"],
+                session["audio"],
+                session["song"],
+                session["sub"],
+                session["user"],
+                output_video_path
+            )
         
         await context.bot.edit_message_text(
             chat_id=chat_id,

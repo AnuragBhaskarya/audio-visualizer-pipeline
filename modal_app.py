@@ -17,7 +17,8 @@ image = (
         "python-telegram-bot",
         "python-dotenv",
         "httpx",
-        "fastapi[standard]"
+        "fastapi[standard]",
+        "imageio-ffmpeg"
     )
     .add_local_file("make_bg.py", "/root/make_bg.py")
     .add_local_file("visualizer.py", "/root/visualizer.py")
@@ -94,6 +95,9 @@ async def telegram_webhook(request_json: dict):
     if not bot_token:
         return {"status": "error", "message": "Missing TELEGRAM_BOT_TOKEN"}
 
+    # Pass the Modal 16-core render function into bot.py!
+    bot.MODAL_RENDER_FUNC = render_visualizer_modal
+
     # Initialize bot application
     tg_app = ApplicationBuilder().token(bot_token).build()
     
@@ -121,7 +125,6 @@ def set_webhook():
     load_dotenv()
     
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
-    # Target deployed production URL
     webhook_url = "https://dekamukul013--audio-visualizer-pipeline-telegram-webhook.modal.run"
     
     print("=" * 60)
