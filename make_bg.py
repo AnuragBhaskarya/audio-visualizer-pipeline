@@ -23,20 +23,30 @@ def fit_to_16_9(img):
         
     return img.resize((1920, 1080), Image.Resampling.LANCZOS)
 
-def draw_text_with_stroke(img, text, position, font, text_color="white", stroke_color="white", stroke_width=6):
-    """Draws text with stroke ONLY (no fill)."""
+def draw_text_with_stroke(img, text, position, font, stroke_color="white", stroke_width=6, shadow_color="black", shadow_blur=25, shadow_intensity=2):
+    """Draws hollow text (stroke ONLY, 100% transparent interior) with a soft blurred drop shadow behind the stroke."""
     img = img.convert("RGBA")
+    x, y = position
+    
+    # 1. Soft blurred drop shadow behind the hollow stroke
+    shadow_layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow_layer)
+    shadow_draw.text((x, y), text, font=font, fill=(0, 0, 0, 0), stroke_fill=shadow_color, stroke_width=stroke_width + 6, anchor="mm")
+    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(shadow_blur))
+    
+    for _ in range(shadow_intensity):
+        img = Image.alpha_composite(img, shadow_layer)
+        
+    # 2. Pure white hollow stroke (fill=(0, 0, 0, 0))
     txt_layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(txt_layer)
-    
-    x, y = position
     draw.text((x, y), text, font=font, fill=(0, 0, 0, 0), stroke_fill=stroke_color, stroke_width=stroke_width, anchor="mm")
     
     img = Image.alpha_composite(img, txt_layer)
     return img.convert("RGB")
 
 def draw_text_with_blurred_shadow(img, text, position, font, text_color="white", shadow_color="black", shadow_offset=(8, 8), shadow_blur=10, is_hard_light=False, shadow_intensity=1, anchor="mm"):
-    """Draws text with a blurred drop shadow (no strokes). Supports Hard Light blend for the text body."""
+    """Draws text with a blurred drop shadow. Supports Hard Light blend for the text body."""
     shadow_layer = Image.new('RGBA', img.size, (0, 0, 0, 0))
     shadow_draw = ImageDraw.Draw(shadow_layer)
     
@@ -123,10 +133,8 @@ def apply_pinch_warp(img, amount=0.55):
     """Applies a full-frame 360° inward pinch warp and crops outer mirrored tiles to exact 16:9."""
     pil_in = img.convert("RGB")
     cv_img = cv2.cvtColor(np.array(pil_in), cv2.COLOR_RGB2BGR)
-    h, w = cv_img.shape[:2]
 
-    map_x = np.zeros((h, w), dtype=np.float32)
-    map_y = np.zeros((h, w), dtype=np.float32)
+    h, w = cv_img.shape[:2]
 
     cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
     max_dist = np.sqrt(cx**2 + cy**2)
@@ -149,34 +157,35 @@ def apply_pinch_warp(img, amount=0.55):
 
     is_original = (map_x >= 0) & (map_x <= w - 1) & (map_y >= 0) & (map_y <= h - 1)
 
-    target_aspect = 16.0 / 9.0
-    best_crop = None
-    max_area = 0
+    valid_cols = np.where(is_original.all(axis=0))[0]
+    valid_rows = np.where(is_original.all(axis=1))[0]
 
-    h_step = max(1, h // 200)
-    for y1 in range(0, int(cy), h_step):
-        h_crop = int(2 * (cy - y1))
-        w_crop = int(h_crop * target_aspect)
-        x1 = int(cx - w_crop / 2.0)
-        x2 = x1 + w_crop
-        y2 = y1 + h_crop
-
-        if x1 >= 0 and x2 <= w and y1 >= 0 and y2 <= h:
-            sub_mask = is_original[y1:y2, x1:x2]
-            if np.all(sub_mask):
-                area = w_crop * h_crop
-                if area > max_area:
-                    max_area = area
-                    best_crop = (x1, y1, x2, y2)
-                break
-
-    if best_crop is not None:
-        x1, y1, x2, y2 = best_crop
-        cropped = pinched[y1:y2, x1:x2]
+    if len(valid_cols) > 0 and len(valid_rows) > 0:
+        min_x, max_x = valid_cols[0], valid_cols[-1]
+        min_y, max_y = valid_rows[0], valid_rows[-1]
+        crop_x1 = max(min_x, w - 1 - max_x)
+        crop_y1 = max(min_y, h - 1 - max_y)
     else:
-        cropped = pinched
+        crop_x1 = int(w * 0.08)
+        crop_y1 = int(h * 0.08)
 
+    crop_w = w - 2 * crop_x1
+    crop_h = h - 2 * crop_y1
+
+    target_ratio = 16.0 / 9.0
+    if crop_w / crop_h > target_ratio:
+        crop_w = int(crop_h * target_ratio)
+    else:
+        crop_h = int(crop_w / target_ratio)
+
+    x1 = cx - crop_w / 2.0
+    y1 = cy - crop_h / 2.0
+
+    x1_i, y1_i = int(round(x1)), int(round(y1))
+
+    cropped = pinched[y1_i:y1_i + crop_h, x1_i:x1_i + crop_w]
     final_cv = cv2.resize(cropped, (1920, 1080), interpolation=cv2.INTER_LANCZOS4)
+
     final_rgb = cv2.cvtColor(final_cv, cv2.COLOR_BGR2RGB)
     return Image.fromarray(final_rgb)
 
@@ -216,7 +225,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
             font_title = temp_title_font
             
         font_sub = ImageFont.truetype(font_path, 85)
-        font_user = ImageFont.truetype(font_path, 35)
+        font_user = ImageFont.truetype(font_path, 35)  # LEMONMILK-Bold for username!
     except IOError as e:
         print(f"Error loading fonts: {e}")
         font_title = font_sub = font_user = ImageFont.load_default()
@@ -225,6 +234,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     center_x = w // 2
     center_y = h // 2
     
+    # 1. Main Song Title (Solid White with Drop Shadow)
     img = draw_text_with_blurred_shadow(
         img, 
         song_name.upper(), 
@@ -236,13 +246,20 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
         shadow_intensity=3,
         anchor="mb"
     )
+    # 2. Hard Light Tapered Separator Line
     img = draw_hard_light_line(img, (center_x, center_y + 80), width=950, height=14)
+    
+    # 3. Subtitle Text (Hollow Outlined Stroke + Blurred Drop Shadow)
     img = draw_text_with_stroke(
         img, 
         subtitle.upper(), 
         (center_x, center_y + 135), 
         font_sub, 
-        stroke_width=6
+        stroke_color="white",
+        stroke_width=6,
+        shadow_color="black",
+        shadow_blur=25,
+        shadow_intensity=2
     )
     bg_stats["typography"] = time.time() - t0
     
@@ -251,6 +268,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     bg_stats["pinch_warp"] = time.time() - t0
     
     t0 = time.time()
+    # 4. Username Text (LEMONMILK-Bold + Hard Light Blend + Shadow)
     img = draw_text_with_blurred_shadow(
         img, 
         username.upper(), 
@@ -285,4 +303,11 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="final_bg.jpg", help="Output filename")
     
     args = parser.parse_args()
-    create_background(args.image, args.song, args.sub, args.user, args.out)
+    
+    create_background(
+        input_path=args.image,
+        song_name=args.song,
+        subtitle=args.sub,
+        username=args.user,
+        output_path=args.out
+    )
