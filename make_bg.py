@@ -246,10 +246,8 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
         shadow_intensity=3,
         anchor="mb"
     )
-    # 2. Hard Light Tapered Separator Line
-    img = draw_hard_light_line(img, (center_x, center_y + 80), width=950, height=14)
     
-    # 3. Subtitle Text (Hollow Outlined Stroke + Blurred Drop Shadow)
+    # 2. Subtitle Text (Hollow Outlined Stroke + Blurred Drop Shadow)
     img = draw_text_with_stroke(
         img, 
         subtitle.upper(), 
@@ -261,6 +259,9 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
         shadow_blur=25,
         shadow_intensity=2
     )
+    
+    # 3. Hard Light Tapered Separator Line (ON TOP of everything)
+    img = draw_hard_light_line(img, (center_x, center_y + 80), width=950, height=14)
     bg_stats["typography"] = time.time() - t0
     
     t0 = time.time()
