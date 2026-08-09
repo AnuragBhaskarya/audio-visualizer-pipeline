@@ -99,6 +99,7 @@ def render_chunk(args):
         wiggle_x, wiggle_y, wiggle_angle, wiggle_scale, shake_osc = _worker_wiggles[frame_idx]
         
         scale = wiggle_scale
+        angle = wiggle_angle
         dy = wiggle_y
         dx = wiggle_x
         
@@ -191,7 +192,7 @@ def render_chunk(args):
             
         cv2.add(frame, overlay, dst=frame)
             
-        bars = _worker_bars[:, frame_idx]
+        bars = _worker_bars[frame_idx, :]
         max_bar_h = target_h // 2
         h_vals = (bars * max_bar_h).astype(np.int32)
         

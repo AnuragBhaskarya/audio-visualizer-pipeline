@@ -137,7 +137,7 @@ def apply_pinch_warp(img, amount=0.55):
     d = np.sqrt(dx**2 + dy**2)
     norm_d = d / max_dist
 
-    factor = 1.0 + amount * ((1.0 - norm_d) ** 1.5)
+    factor = 1.0 + amount * ((np.maximum(0.0, 1.0 - norm_d)) ** 1.5)
 
     src_x = cx + dx * factor
     src_y = cy + dy * factor
@@ -216,7 +216,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
             font_title = temp_title_font
             
         font_sub = ImageFont.truetype(font_path, 85)
-        font_user = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-ExtraLight.ttf", 35)
+        font_user = ImageFont.truetype(font_path, 35)
     except IOError as e:
         print(f"Error loading fonts: {e}")
         font_title = font_sub = font_user = ImageFont.load_default()
