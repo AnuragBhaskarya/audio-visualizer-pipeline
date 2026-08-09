@@ -17,8 +17,8 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
 ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "6371392863"))
 
-# Global handle for Modal 16-Core Cloud Function (set dynamically by modal_app.py)
-MODAL_RENDER_FUNC = None
+# Global handle for Modal Background Task Spawner (set dynamically by modal_app.py)
+MODAL_SPAWN_FUNC = None
 
 # Logging Setup
 logging.basicConfig(
@@ -72,7 +72,7 @@ def format_benchmark_report(session, stats):
         "───────────────────────────────\n"
         f"⏱️ <b>Total Execution Time:</b> {stats['total_pipeline_time']:.2f}s\n\n"
         f"🖼️ <b>Background Generation:</b> {bg['total']:.2f}s\n"
-        f"  • 16:9 Crop & Resample: <code>{bg['crop_scale']:.3f}s</code>\n"
+        f"  • 16:9 Crop & Scale: <code>{bg['crop_scale']:.3f}s</code>\n"
         f"  • Color Correction & CC: <code>{bg['color_correction']:.3f}s</code>\n"
         f"  • Typography & Shadow: <code>{bg['typography']:.3f}s</code>\n"
         f"  • Pinch Warp & Crop: <code>{bg['pinch_warp']:.3f}s</code>\n"
@@ -215,54 +215,60 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if session["image"] and session["audio"] and session["song"]:
         session["is_processing"] = True
-        asyncio.create_task(process_and_send_video(chat_id, context))
+        
+        if MODAL_SPAWN_FUNC is not None:
+            # SPAWN AUTONOMOUS MODAL BACKGROUND TASK
+            logger.info("Spawning autonomous Modal background task for video rendering & Telegram delivery...")
+            with open(session["image"], "rb") as f:
+                img_bytes = f.read()
+            with open(session["audio"], "rb") as f:
+                aud_bytes = f.read()
+                
+            MODAL_SPAWN_FUNC.spawn(
+                chat_id=chat_id,
+                image_bytes=img_bytes,
+                audio_bytes=aud_bytes,
+                song_name=session["song"],
+                subtitle=session["sub"],
+                username=session["user"]
+            )
+            # Reset session after spawning
+            user_sessions[chat_id] = {
+                "image": None,
+                "image_name": None,
+                "audio": None,
+                "audio_name": None,
+                "song": None,
+                "sub": "EDIT AUDIO",
+                "user": "SO9IC",
+                "is_processing": False
+            }
+        else:
+            asyncio.create_task(process_and_send_video(chat_id, context))
 
 async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[chat_id]
     status_msg = await context.bot.send_message(
         chat_id=chat_id,
-        text="⚡ <b>Waking up 16-Core Modal Cloud Container...</b>\nRendering 1080p 60FPS video. Please wait...",
+        text="⚡ <b>Starting Audio Visualizer Pipeline...</b>\nRendering 1080p 60FPS video. Please wait...",
         parse_mode="HTML"
     )
     
     output_video_path = f"downloads/output_{chat_id}.mp4"
     
     try:
-        if MODAL_RENDER_FUNC is not None:
-            # Execute on 16-Core Modal Cloud Container!
-            logger.info("Executing video rendering on 16-Core Modal Cloud Function...")
-            with open(session["image"], "rb") as f:
-                img_bytes = f.read()
-            with open(session["audio"], "rb") as f:
-                aud_bytes = f.read()
-                
-            loop = asyncio.get_running_loop()
-            video_bytes, stats = await loop.run_in_executor(
-                None,
-                lambda: MODAL_RENDER_FUNC.remote(
-                    image_bytes=img_bytes,
-                    audio_bytes=aud_bytes,
-                    song_name=session["song"],
-                    subtitle=session["sub"],
-                    username=session["user"]
-                )
-            )
-            with open(output_video_path, "wb") as f:
-                f.write(video_bytes)
-        else:
-            # Fallback local execution
-            from main import run_pipeline
-            loop = asyncio.get_running_loop()
-            output_video_path, stats = await loop.run_in_executor(
-                None,
-                run_pipeline,
-                session["image"],
-                session["audio"],
-                session["song"],
-                session["sub"],
-                session["user"],
-                output_video_path
-            )
+        from main import run_pipeline
+        loop = asyncio.get_running_loop()
+        output_video_path, stats = await loop.run_in_executor(
+            None,
+            run_pipeline,
+            session["image"],
+            session["audio"],
+            session["song"],
+            session["sub"],
+            session["user"],
+            output_video_path
+        )
         
         await context.bot.edit_message_text(
             chat_id=chat_id,

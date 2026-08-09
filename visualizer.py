@@ -235,7 +235,7 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
     
     print(f"Loading audio ({audio_path}) and image ({image_path})...")
     t0 = time.time()
-    y, sr = librosa.load(audio_path, sr=None)
+    y, sr = librosa.load(audio_path, sr=22050)
     duration = librosa.get_duration(y=y, sr=sr)
     
     S = librosa.feature.melspectrogram(y=y, sr=sr, fmax=250)

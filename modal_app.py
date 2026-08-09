@@ -4,6 +4,9 @@ import modal
 # Define Modal App Name
 app = modal.App("audio-visualizer-pipeline")
 
+# Shared Modal Dict for persisting user session state across webhook requests
+user_sessions = modal.Dict.from_name("audio-vis-user-sessions", create_if_missing=True)
+
 # Define Modal Cloud Image with FFmpeg and dependencies
 image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -77,13 +80,85 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("visualizer-secrets")],
+    scaledown_window=2,
+    timeout=600
+)
+def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes, song_name: str, subtitle: str, username: str):
+    """
+    Autonomous Modal Background Task.
+    Executes 16-core video rendering and sends the final .mp4 video & benchmark report directly to Telegram!
+    """
+    import os
+    import sys
+    sys.path.append("/root")
+    from telegram import Bot
+    import asyncio
+    import bot
+
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    tg_bot = Bot(token=bot_token)
+
+    print(f"Modal Background Task: Processing video for Chat ID {chat_id}...")
+
+    # 1. Update Telegram Status
+    asyncio.run(tg_bot.send_message(
+        chat_id=chat_id,
+        text="⚡ <b>Executing 16-Core Parallel Cloud Rendering...</b>\nPlease wait ~10 seconds...",
+        parse_mode="HTML"
+    ))
+
+    # 2. Render Video via 16-Core Cloud Function
+    video_bytes, stats = render_visualizer_modal.remote(
+        image_bytes=image_bytes,
+        audio_bytes=audio_bytes,
+        song_name=song_name,
+        subtitle=subtitle,
+        username=username
+    )
+
+    temp_out_path = f"/tmp/modal_out_{chat_id}.mp4"
+    with open(temp_out_path, "wb") as f:
+        f.write(video_bytes)
+
+    # 3. Send final video to Telegram
+    print(f"Uploading video to Telegram Chat ID {chat_id}...")
+    with open(temp_out_path, "rb") as vf:
+        asyncio.run(tg_bot.send_video(
+            chat_id=chat_id,
+            video=vf,
+            caption=(
+                f"🎬 <b>Audio Visualizer Ready!</b>\n\n"
+                f"🎵 <b>Song:</b> {song_name}\n"
+                f"✨ <b>Subtitle:</b> {subtitle}\n"
+                f"👤 <b>Creator:</b> {username}\n"
+                f"⚡ 60 FPS • 1080p • Peak Audio Reactive"
+            ),
+            parse_mode="HTML",
+            supports_streaming=True
+        ))
+
+    # 4. Send performance benchmark report
+    benchmark_msg = bot.format_benchmark_report({"song": song_name}, stats)
+    asyncio.run(tg_bot.send_message(
+        chat_id=chat_id,
+        text=benchmark_msg,
+        parse_mode="HTML"
+    ))
+
+    # Clean up temp output
+    if os.path.exists(temp_out_path):
+        os.remove(temp_out_path)
+
+@app.function(
+    image=image,
+    secrets=[modal.Secret.from_name("visualizer-secrets")],
     scaledown_window=2
 )
 @modal.fastapi_endpoint(method="POST")
 async def telegram_webhook(request_json: dict):
     """
     Serverless Telegram Webhook Endpoint on Modal.
-    Receives incoming updates from Telegram, processes state machine, and triggers 16-core video rendering.
+    Receives incoming updates from Telegram, updates state machine, and spawns background render task.
     """
     import sys
     sys.path.append("/root")
@@ -95,8 +170,8 @@ async def telegram_webhook(request_json: dict):
     if not bot_token:
         return {"status": "error", "message": "Missing TELEGRAM_BOT_TOKEN"}
 
-    # Pass the Modal 16-core render function into bot.py!
-    bot.MODAL_RENDER_FUNC = render_visualizer_modal
+    # Inject Modal spawn handle into bot.py
+    bot.MODAL_SPAWN_FUNC = process_and_send_modal
 
     # Initialize bot application
     tg_app = ApplicationBuilder().token(bot_token).build()
