@@ -1,0 +1,27 @@
+# Environment & Security Secrets
+.env
+*.env
+
+# Python Bytecode & Environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+
+# Media Output Files
+*.mp4
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp3
+*.wav
+*.flac
+*.m4a
+
+# Temporary Render Chunks
+temp_*
+concat.txt

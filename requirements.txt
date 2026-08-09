@@ -1,0 +1,11 @@
+opencv-python-headless
+Pillow
+numpy
+librosa
+tqdm
+python-telegram-bot
+python-dotenv
+httpx
+fastapi[standard]
+modal
+imageio-ffmpeg
