@@ -25,11 +25,10 @@ def fit_to_16_9(img):
 
 def draw_red_no_copyright_banner(img, font_path):
     """
-    Draws the exact horizontal red ribbon bar matching the user's reference image:
-    - Top edge aligned to Y=0, right edge aligned to X=w.
-    - Bottom edge is horizontal at Y=bar_height.
-    - Left edge is slanted diagonally.
-    - Pure white bold 'NO COPYRIGHT' text horizontally centered inside the ribbon.
+    Draws a stylized red ribbon banner matching YouTube thumbnail badges:
+    - Left tilted end is slightly smaller/narrower (tapered).
+    - Bottom edge features a smooth upward curve (arch).
+    - Bold horizontal white 'NO COPYRIGHT' text centered inside.
     """
     img = img.convert("RGBA")
     w, h = img.size  # 1920 x 1080
@@ -37,28 +36,37 @@ def draw_red_no_copyright_banner(img, font_path):
     banner_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(banner_layer)
     
-    bar_height = 120
-    ribbon_length = 640
-    slant_offset = 65
+    p_top_right = (w, 0)
+    p_bottom_right = (w, 122)
+    p_top_left = (w - 700, 0)
+    p_bottom_left = (w - 635, 96)   # Tapered left end (slightly smaller)
     
-    # 4 Polygon vertices
-    p1 = (w - ribbon_length - slant_offset, 0)      # Top-Left (1215, 0)
-    p2 = (w, 0)                                      # Top-Right (1920, 0)
-    p3 = (w, bar_height)                             # Bottom-Right (1920, 120)
-    p4 = (w - ribbon_length, bar_height)             # Bottom-Left (1280, 120)
+    # Quadratic Bezier Curve for smooth upward arched bottom edge
+    t_vals = np.linspace(0, 1, 50)
+    curve_points = []
+    
+    p0 = np.array(p_bottom_left, dtype=np.float32)
+    p1 = np.array([w - 320, 75], dtype=np.float32)  # Upward curve control point
+    p2 = np.array(p_bottom_right, dtype=np.float32)
+    
+    for t in t_vals:
+        pt = (1 - t)**2 * p0 + 2 * (1 - t) * t * p1 + t**2 * p2
+        curve_points.append((float(pt[0]), float(pt[1])))
+        
+    polygon_points = [p_top_left, p_top_right, p_bottom_right] + list(reversed(curve_points)) + [p_bottom_left]
     
     red_color = (211, 18, 18, 255)  # Vibrant Crimson Red #D31212
-    draw.polygon([p1, p2, p3, p4], fill=red_color)
+    draw.polygon(polygon_points, fill=red_color)
     
     try:
-        font_nc = ImageFont.truetype(font_path, 52)
+        font_nc = ImageFont.truetype(font_path, 48)
     except IOError:
         font_nc = ImageFont.load_default()
         
     text = "NO COPYRIGHT"
     
-    center_x = w - (ribbon_length / 2.0) + 10
-    center_y = bar_height / 2.0
+    center_x = w - 310
+    center_y = 48
     
     draw.text((center_x, center_y), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
     
@@ -232,7 +240,7 @@ def apply_pinch_warp(img, amount=0.55):
     return Image.fromarray(final_rgb)
 
 def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_path="final_bg.jpg", no_copyright_output_path="no_copyright_bg.jpg"):
-    """Generates both Version 1 (Final BG) and Version 2 (Red NO COPYRIGHT Ribbon BG)."""
+    """Generates both Version 1 (Final BG) and Version 2 (Stylized Red NO COPYRIGHT Ribbon BG)."""
     t_start = time.time()
     bg_stats = {}
     
@@ -331,7 +339,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     
     img_v1.save(output_path, quality=98)
 
-    # --- VERSION 2: RED NO COPYRIGHT RIBBON BANNER BG ---
+    # --- VERSION 2: RED NO COPYRIGHT STYLIZED RIBBON BG ---
     img_v2 = img.copy()
     img_v2 = apply_pinch_warp(img_v2, amount=0.55)
     img_v2 = draw_red_no_copyright_banner(img_v2, font_path)
