@@ -25,9 +25,11 @@ def fit_to_16_9(img):
 
 def draw_red_no_copyright_banner(img, font_path):
     """
-    Draws the exact red corner banner matching s5qhq2IT2Oc-HD.jpg:
-    - Pure solid vibrant red polygon in top-right corner.
-    - Clean HORIZONTAL (un-rotated) bold 'NO COPYRIGHT' text.
+    Draws the exact horizontal red ribbon bar matching the user's reference image:
+    - Top edge aligned to Y=0, right edge aligned to X=w.
+    - Bottom edge is horizontal at Y=bar_height.
+    - Left edge is slanted diagonally.
+    - Pure white bold 'NO COPYRIGHT' text horizontally centered inside the ribbon.
     """
     img = img.convert("RGBA")
     w, h = img.size  # 1920 x 1080
@@ -35,27 +37,30 @@ def draw_red_no_copyright_banner(img, font_path):
     banner_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(banner_layer)
     
-    top_x = w - 650     # 1270
-    right_y = 230       # 230
+    bar_height = 120
+    ribbon_length = 640
+    slant_offset = 65
     
-    p1 = (top_x, 0)
-    p2 = (w, 0)
-    p3 = (w, right_y)
+    # 4 Polygon vertices
+    p1 = (w - ribbon_length - slant_offset, 0)      # Top-Left (1215, 0)
+    p2 = (w, 0)                                      # Top-Right (1920, 0)
+    p3 = (w, bar_height)                             # Bottom-Right (1920, 120)
+    p4 = (w - ribbon_length, bar_height)             # Bottom-Left (1280, 120)
     
     red_color = (211, 18, 18, 255)  # Vibrant Crimson Red #D31212
-    draw.polygon([p1, p2, p3], fill=red_color)
+    draw.polygon([p1, p2, p3, p4], fill=red_color)
     
     try:
-        font_nc = ImageFont.truetype(font_path, 46)
+        font_nc = ImageFont.truetype(font_path, 52)
     except IOError:
         font_nc = ImageFont.load_default()
         
     text = "NO COPYRIGHT"
     
-    text_x = w - 280
-    text_y = 70
+    center_x = w - (ribbon_length / 2.0) + 10
+    center_y = bar_height / 2.0
     
-    draw.text((text_x, text_y), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
+    draw.text((center_x, center_y), text, font=font_nc, fill=(255, 255, 255, 255), anchor="mm")
     
     img = Image.alpha_composite(img, banner_layer)
     return img.convert("RGB")
@@ -227,7 +232,7 @@ def apply_pinch_warp(img, amount=0.55):
     return Image.fromarray(final_rgb)
 
 def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_path="final_bg.jpg", no_copyright_output_path="no_copyright_bg.jpg"):
-    """Generates both Version 1 (Final BG) and Version 2 (Red NO COPYRIGHT Banner BG)."""
+    """Generates both Version 1 (Final BG) and Version 2 (Red NO COPYRIGHT Ribbon BG)."""
     t_start = time.time()
     bg_stats = {}
     
@@ -326,7 +331,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
     
     img_v1.save(output_path, quality=98)
 
-    # --- VERSION 2: RED NO COPYRIGHT DIAGONAL BANNER BG ---
+    # --- VERSION 2: RED NO COPYRIGHT RIBBON BANNER BG ---
     img_v2 = img.copy()
     img_v2 = apply_pinch_warp(img_v2, amount=0.55)
     img_v2 = draw_red_no_copyright_banner(img_v2, font_path)
