@@ -254,7 +254,8 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
 
     S = librosa.feature.melspectrogram(y=y, sr=sr, fmax=250)
     onset_env = librosa.onset.onset_strength(S=librosa.power_to_db(S, ref=np.max), sr=sr)
-    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr, tightness=100)
+    tempo_val = librosa.feature.rhythm.tempo(onset_envelope=onset_env, sr=sr)[0]
+    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr, bpm=tempo_val, tightness=100)
     beat_times = librosa.frames_to_time(beats, sr=sr)
     vis_stats["audio_fft_beats"] = time.time() - t0
     
