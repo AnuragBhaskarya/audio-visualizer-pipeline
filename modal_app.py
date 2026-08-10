@@ -25,6 +25,20 @@ image = (
         "fastapi[standard]",
         "imageio-ffmpeg"
     )
+    # Pre-warm numba JIT cache during image build — bakes compiled .nbi/.nbc
+    # files into the Docker layer so cold starts skip the 31s JIT penalty.
+    .run_commands(
+        "python -W ignore -c \""
+        "import numpy as np; import librosa; "
+        "_y = np.zeros(22050, dtype=np.float32); "
+        "_S = librosa.feature.melspectrogram(y=_y, sr=22050, fmax=250); "
+        "_db = librosa.power_to_db(_S, ref=np.max); "
+        "_oe = librosa.onset.onset_strength(S=_db, sr=22050); "
+        "librosa.beat.beat_track(onset_envelope=_oe, sr=22050, bpm=120.0, tightness=100); "
+        "librosa.stft(_y, n_fft=2048, hop_length=512); "
+        "print('Numba JIT cache baked into image.')"
+        "\""
+    )
     .add_local_file("make_bg.py", "/root/make_bg.py")
     .add_local_file("visualizer.py", "/root/visualizer.py")
     .add_local_file("main.py", "/root/main.py")
