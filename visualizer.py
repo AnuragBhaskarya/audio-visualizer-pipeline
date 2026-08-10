@@ -235,12 +235,26 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
     
     print(f"Loading audio ({audio_path}) and image ({image_path})...")
     t0 = time.time()
-    y, sr = librosa.load(audio_path, sr=22050)
-    duration = librosa.get_duration(y=y, sr=sr)
-    
+    # High-speed FFmpeg PCM stream directly to RAM float32 array
+    ffmpeg_exe = im_ffmpeg.get_ffmpeg_exe()
+    cmd = [
+        ffmpeg_exe,
+        "-y",
+        "-i", audio_path,
+        "-f", "s16le",
+        "-ac", "1",
+        "-ar", "22050",
+        "-"
+    ]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    raw_pcm, _ = proc.communicate()
+    y = np.frombuffer(raw_pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    sr = 22050
+    duration = len(y) / sr
+
     S = librosa.feature.melspectrogram(y=y, sr=sr, fmax=250)
     onset_env = librosa.onset.onset_strength(S=librosa.power_to_db(S, ref=np.max), sr=sr)
-    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr)
+    tempo, beats = librosa.beat.beat_track(onset_envelope=onset_env, sr=sr, tightness=100)
     beat_times = librosa.frames_to_time(beats, sr=sr)
     vis_stats["audio_fft_beats"] = time.time() - t0
     

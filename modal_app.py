@@ -16,6 +16,8 @@ image = (
         "Pillow",
         "numpy",
         "librosa",
+        "numba",
+        "soxr",
         "tqdm",
         "python-telegram-bot",
         "python-dotenv",
