@@ -21,6 +21,10 @@ ALLOWED_CHAT_IDS = [int(cid.strip()) for cid in raw_chat_ids.split(",") if cid.s
 # Global handle for Modal Background Task Spawner (set dynamically by modal_app.py)
 MODAL_SPAWN_FUNC = None
 
+# Limit concurrent local renders to prevent CPU thrashing
+MAX_CONCURRENT_RENDERS = 2
+_render_semaphore = asyncio.Semaphore(MAX_CONCURRENT_RENDERS)
+
 # Logging Setup
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -258,70 +262,79 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
     session = user_sessions[chat_id]
-    status_msg = await context.bot.send_message(
-        chat_id=chat_id,
-        text="⚡ <b>Starting Audio Visualizer Pipeline...</b>\nRendering 1080p 60FPS video. Please wait...",
-        parse_mode="HTML"
-    )
-    
     output_video_path = f"downloads/output_{chat_id}.mp4"
     
-    try:
-        from main import run_pipeline
-        loop = asyncio.get_running_loop()
-        output_video_path, stats = await loop.run_in_executor(
-            None,
-            run_pipeline,
-            session["image"],
-            session["audio"],
-            session["song"],
-            session["sub"],
-            session["user"],
-            output_video_path
-        )
-        
-        await context.bot.edit_message_text(
+    # Acquire render slot (blocks if MAX_CONCURRENT_RENDERS already running)
+    async with _render_semaphore:
+        status_msg = await context.bot.send_message(
             chat_id=chat_id,
-            message_id=status_msg.message_id,
-            text="📤 <b>Rendering complete! Uploading video to Telegram...</b>",
+            text="⚡ <b>Starting Audio Visualizer Pipeline...</b>\nRendering 1080p 60FPS video. Please wait...",
             parse_mode="HTML"
         )
         
-        # 1. Send final video
-        with open(output_video_path, "rb") as video_file:
-            await context.bot.send_video(
-                chat_id=chat_id,
-                video=video_file,
-                caption=(
-                    f"🎬 <b>Audio Visualizer Ready!</b>\n\n"
-                    f"🎵 <b>Song:</b> {session['song']}\n"
-                    f"✨ <b>Subtitle:</b> {session['sub']}\n"
-                    f"👤 <b>Creator:</b> {session['user']}\n"
-                    f"⚡ 60 FPS • 1080p • Peak Audio Reactive"
-                ),
-                parse_mode="HTML",
-                supports_streaming=True
+        try:
+            from main import run_pipeline
+            loop = asyncio.get_running_loop()
+            _video, _bg, _nc, stats = await loop.run_in_executor(
+                None,
+                lambda: run_pipeline(
+                    image_path=session["image"],
+                    audio_path=session["audio"],
+                    song_name=session["song"],
+                    subtitle=session["sub"],
+                    username=session["user"],
+                    output_video=output_video_path,
+                    job_id=chat_id
+                )
             )
             
-        # 2. Send detailed performance benchmark report
-        benchmark_msg = format_benchmark_report(session, stats)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=benchmark_msg,
-            parse_mode="HTML"
-        )
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_msg.message_id,
+                text="📤 <b>Rendering complete! Uploading video to Telegram...</b>",
+                parse_mode="HTML"
+            )
             
-    except Exception as e:
-        logger.error(f"Error during video rendering: {e}", exc_info=True)
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"❌ <b>Error occurred during rendering:</b>\n<code>{e}</code>",
-            parse_mode="HTML"
-        )
-    finally:
-        user_sessions[chat_id] = _default_session()
-        if os.path.exists(output_video_path):
-            os.remove(output_video_path)
+            # 1. Send final video
+            with open(output_video_path, "rb") as video_file:
+                await context.bot.send_video(
+                    chat_id=chat_id,
+                    video=video_file,
+                    caption=(
+                        f"🎬 <b>Audio Visualizer Ready!</b>\n\n"
+                        f"🎵 <b>Song:</b> {session['song']}\n"
+                        f"✨ <b>Subtitle:</b> {session['sub']}\n"
+                        f"👤 <b>Creator:</b> {session['user']}\n"
+                        f"⚡ 60 FPS • 1080p • Peak Audio Reactive"
+                    ),
+                    parse_mode="HTML",
+                    supports_streaming=True
+                )
+                
+            # 2. Send detailed performance benchmark report
+            benchmark_msg = format_benchmark_report(session, stats)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=benchmark_msg,
+                parse_mode="HTML"
+            )
+                
+        except Exception as e:
+            logger.error(f"Error during video rendering for chat {chat_id}: {e}", exc_info=True)
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"❌ <b>Error occurred during rendering:</b>\n<code>{e}</code>",
+                parse_mode="HTML"
+            )
+        finally:
+            # Clean up all per-user temp files
+            user_sessions[chat_id] = _default_session()
+            for path in [output_video_path, session.get("image"), session.get("audio")]:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
 
 def main():
     print(f"Starting Telegram Audio Visualizer Bot (Allowed Chat IDs: {ALLOWED_CHAT_IDS})...")

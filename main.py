@@ -5,10 +5,12 @@ import argparse
 from make_bg import create_background
 from visualizer import build_visualizer
 
-def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_video="output_final.mp4", no_copyright_path="temp_no_copyright_bg.jpg"):
+def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", username="SO9IC", output_video="output_final.mp4", no_copyright_path=None, job_id=None):
     """
     Executes the full Audio Visualizer Pipeline and returns output video, background images, and timing benchmark stats.
+    Pass a unique job_id (e.g. chat_id) to isolate temp files for concurrent runs.
     """
+    prefix = f"{job_id}_" if job_id else ""
     t_pipe_start = time.time()
     
     print("=" * 65)
@@ -20,6 +22,8 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
     print(f"Subtitle:       {subtitle}")
     print(f"Username:       {username}")
     print(f"Output Video:   {output_video}")
+    if job_id:
+        print(f"Job ID:         {job_id}")
     print("-" * 65)
     
     if not os.path.exists(image_path):
@@ -27,7 +31,9 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Input audio file not found: {audio_path}")
         
-    temp_bg_path = "temp_generated_bg.jpg"
+    temp_bg_path = f"{prefix}temp_generated_bg.jpg"
+    if no_copyright_path is None:
+        no_copyright_path = f"{prefix}temp_no_copyright_bg.jpg"
     
     try:
         # Step 1: Generate dynamic background variants
@@ -68,7 +74,13 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
         return output_video, temp_bg_path, no_copyright_path, pipeline_stats
 
     finally:
-        pass
+        # Clean up temp files
+        for tmp in [temp_bg_path, no_copyright_path]:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full Audio Visualizer Pipeline")
