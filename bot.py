@@ -15,7 +15,8 @@ from telegram.ext import (
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
-ALLOWED_CHAT_ID = int(os.getenv("ALLOWED_CHAT_ID", "6371392863"))
+raw_chat_ids = os.getenv("ALLOWED_CHAT_IDS", os.getenv("ALLOWED_CHAT_ID", "6371392863"))
+ALLOWED_CHAT_IDS = [int(cid.strip()) for cid in raw_chat_ids.split(",") if cid.strip()]
 
 # Global handle for Modal Background Task Spawner (set dynamically by modal_app.py)
 MODAL_SPAWN_FUNC = None
@@ -39,7 +40,7 @@ def get_session(chat_id: int):
             "audio_name": None,
             "song": None,
             "sub": "EDIT AUDIO",
-            "user": "SO9IC",
+            "user": None,
             "is_processing": False
         }
     return user_sessions[chat_id]
@@ -47,7 +48,7 @@ def get_session(chat_id: int):
 def format_status_message(session):
     img_status = f"✅ {session['image_name']}" if session['image'] else "⏳ Waiting for image file..."
     aud_status = f"✅ {session['audio_name']}" if session['audio'] else "⏳ Waiting for audio file..."
-    sng_status = f"✅ {session['song']}" if session['song'] else "⏳ Waiting for text..."
+    sng_status = f"✅ {session['song']}" if session['song'] else "⏳ Waiting for text (Song Title)..."
     
     msg = (
         "<b>🎨 AUDIO VISUALIZER BOT STATUS</b>\n"
@@ -55,10 +56,17 @@ def format_status_message(session):
         f"<b>Background Image:</b> {img_status}\n"
         f"<b>Audio Track:</b>      {aud_status}\n"
         f"<b>Song Title:</b>       {sng_status}\n"
-        "───────────────────────────────\n"
     )
     if session['image'] and session['audio'] and session['song']:
+        wmk_status = f"✅ {session['user']}" if session['user'] else "⏳ Waiting for watermark text..."
+        msg += f"<b>Watermark:</b>        {wmk_status}\n"
+
+    msg += "───────────────────────────────\n"
+
+    if session['image'] and session['audio'] and session['song'] and session['user']:
         msg += "🚀 <b>All inputs collected! Triggering 16-Core Modal Cloud Render...</b>"
+    elif session['image'] and session['audio'] and session['song']:
+        msg += "👉 <b>Media collected! Now send a text message for the Watermark.</b>"
     else:
         msg += "👉 Send any missing file/text in any order! Use /reset to clear."
     return msg
@@ -91,10 +99,10 @@ def format_benchmark_report(session, stats):
 def authorize_chat(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
-        if chat_id != ALLOWED_CHAT_ID:
+        if chat_id not in ALLOWED_CHAT_IDS:
             logger.warning(f"Unauthorized access attempt from Chat ID: {chat_id}")
             if update.message:
-                await update.message.reply_text("⛔ Unauthorized access. This bot is locked to a private chat ID.")
+                await update.message.reply_text("⛔ Unauthorized access. This bot is locked to specific private chat IDs.")
             return
         return await func(update, context)
     return wrapper
@@ -109,7 +117,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ An image file (photo, webp, png, document)\n"
         "2️⃣ An audio track (mp3, wav, flac, voice, document)\n"
         "3️⃣ A text message (Song Title)\n\n"
-        "<i>You can send them in ANY order!</i>\n\n" + format_status_message(session),
+        "<i>You can send them in ANY order! Once collected, I will ask for a watermark.</i>\n\n" + format_status_message(session),
         parse_mode="HTML"
     )
 
@@ -129,7 +137,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "audio_name": None,
         "song": None,
         "sub": "EDIT AUDIO",
-        "user": "SO9IC",
+        "user": None,
         "is_processing": False
     }
     await update.message.reply_text("🔄 Session state reset successfully!\n\n" + format_status_message(user_sessions[chat_id]), parse_mode="HTML")
@@ -205,15 +213,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"⚠️ Unsupported file type: <code>{fname}</code> (MIME: {mime}). Please send an image or audio file.", parse_mode="HTML")
             return
 
-    # 4. Check Text Message (Song Title)
+    # 4. Check Text Message (Song Title or Watermark)
     elif msg.text:
-        session["song"] = msg.text.strip()
-        logger.info(f"Received text song title: {session['song']}")
+        if not session["song"]:
+            session["song"] = msg.text.strip()
+            logger.info(f"Received text song title: {session['song']}")
+        elif session["image"] and session["audio"] and session["song"] and not session["user"]:
+            session["user"] = msg.text.strip()
+            logger.info(f"Received text watermark: {session['user']}")
+        elif not session["image"] or not session["audio"]:
+            session["song"] = msg.text.strip()
+            logger.info(f"Updated text song title: {session['song']}")
 
     status_msg = format_status_message(session)
     await update.message.reply_text(status_msg, parse_mode="HTML")
 
-    if session["image"] and session["audio"] and session["song"]:
+    if session["image"] and session["audio"] and session["song"] and session["user"]:
         session["is_processing"] = True
         
         if MODAL_SPAWN_FUNC is not None:
@@ -240,7 +255,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "audio_name": None,
                 "song": None,
                 "sub": "EDIT AUDIO",
-                "user": "SO9IC",
+                "user": None,
                 "is_processing": False
             }
         else:
@@ -316,14 +331,14 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
             "audio_name": None,
             "song": None,
             "sub": "EDIT AUDIO",
-            "user": "SO9IC",
+            "user": None,
             "is_processing": False
         }
         if os.path.exists(output_video_path):
             os.remove(output_video_path)
 
 def main():
-    print(f"Starting Telegram Audio Visualizer Bot (Allowed Chat ID: {ALLOWED_CHAT_ID})...")
+    print(f"Starting Telegram Audio Visualizer Bot (Allowed Chat IDs: {ALLOWED_CHAT_IDS})...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start_command))
