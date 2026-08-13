@@ -31,18 +31,22 @@ logger = logging.getLogger(__name__)
 # Session State Storage per Chat ID
 user_sessions = {}
 
+def _default_session():
+    return {
+        "image": None,
+        "image_name": None,
+        "audio": None,
+        "audio_name": None,
+        "song": None,
+        "sub": "EDIT AUDIO",
+        "user": None,
+        "awaiting_watermark": False,
+        "is_processing": False
+    }
+
 def get_session(chat_id: int):
     if chat_id not in user_sessions:
-        user_sessions[chat_id] = {
-            "image": None,
-            "image_name": None,
-            "audio": None,
-            "audio_name": None,
-            "song": None,
-            "sub": "EDIT AUDIO",
-            "user": None,
-            "is_processing": False
-        }
+        user_sessions[chat_id] = _default_session()
     return user_sessions[chat_id]
 
 def format_status_message(session):
@@ -57,7 +61,7 @@ def format_status_message(session):
         f"<b>Audio Track:</b>      {aud_status}\n"
         f"<b>Song Title:</b>       {sng_status}\n"
     )
-    if session['image'] and session['audio'] and session['song']:
+    if session.get('awaiting_watermark') or session['user']:
         wmk_status = f"✅ {session['user']}" if session['user'] else "⏳ Waiting for watermark text..."
         msg += f"<b>Watermark:</b>        {wmk_status}\n"
 
@@ -65,8 +69,8 @@ def format_status_message(session):
 
     if session['image'] and session['audio'] and session['song'] and session['user']:
         msg += "🚀 <b>All inputs collected! Triggering 16-Core Modal Cloud Render...</b>"
-    elif session['image'] and session['audio'] and session['song']:
-        msg += "👉 <b>Media collected! Now send a text message for the Watermark.</b>"
+    elif session.get('awaiting_watermark'):
+        msg += "✏️ <b>Now send the watermark text.</b>"
     else:
         msg += "👉 Send any missing file/text in any order! Use /reset to clear."
     return msg
@@ -130,16 +134,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @authorize_chat
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    user_sessions[chat_id] = {
-        "image": None,
-        "image_name": None,
-        "audio": None,
-        "audio_name": None,
-        "song": None,
-        "sub": "EDIT AUDIO",
-        "user": None,
-        "is_processing": False
-    }
+    user_sessions[chat_id] = _default_session()
     await update.message.reply_text("🔄 Session state reset successfully!\n\n" + format_status_message(user_sessions[chat_id]), parse_mode="HTML")
 
 @authorize_chat
@@ -213,17 +208,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"⚠️ Unsupported file type: <code>{fname}</code> (MIME: {mime}). Please send an image or audio file.", parse_mode="HTML")
             return
 
-    # 4. Check Text Message (Song Title or Watermark)
+    # 4. Check Text Message (Watermark if awaiting, otherwise Song Title)
     elif msg.text:
-        if not session["song"]:
+        if session.get("awaiting_watermark"):
+            session["user"] = msg.text.strip()
+            session["awaiting_watermark"] = False
+            logger.info(f"Received watermark: {session['user']}")
+        else:
             session["song"] = msg.text.strip()
             logger.info(f"Received text song title: {session['song']}")
-        elif session["image"] and session["audio"] and session["song"] and not session["user"]:
-            session["user"] = msg.text.strip()
-            logger.info(f"Received text watermark: {session['user']}")
-        elif not session["image"] or not session["audio"]:
-            session["song"] = msg.text.strip()
-            logger.info(f"Updated text song title: {session['song']}")
+
+    # Check if all 3 media inputs are ready → prompt for watermark
+    if session["image"] and session["audio"] and session["song"] and not session["user"] and not session.get("awaiting_watermark"):
+        session["awaiting_watermark"] = True
+        status_msg = format_status_message(session)
+        await update.message.reply_text(status_msg, parse_mode="HTML")
+        await update.message.reply_text(
+            "✏️ <b>All media collected!</b>\n\nNow send the <b>watermark</b> text you want on the video.",
+            parse_mode="HTML"
+        )
+        return
 
     status_msg = format_status_message(session)
     await update.message.reply_text(status_msg, parse_mode="HTML")
@@ -248,16 +252,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 username=session["user"]
             )
             # Reset session after spawning
-            user_sessions[chat_id] = {
-                "image": None,
-                "image_name": None,
-                "audio": None,
-                "audio_name": None,
-                "song": None,
-                "sub": "EDIT AUDIO",
-                "user": None,
-                "is_processing": False
-            }
+            user_sessions[chat_id] = _default_session()
         else:
             asyncio.create_task(process_and_send_video(chat_id, context))
 
@@ -324,16 +319,7 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
             parse_mode="HTML"
         )
     finally:
-        user_sessions[chat_id] = {
-            "image": None,
-            "image_name": None,
-            "audio": None,
-            "audio_name": None,
-            "song": None,
-            "sub": "EDIT AUDIO",
-            "user": None,
-            "is_processing": False
-        }
+        user_sessions[chat_id] = _default_session()
         if os.path.exists(output_video_path):
             os.remove(output_video_path)
 
