@@ -20,6 +20,9 @@ if not TELEGRAM_BOT_TOKEN:
 raw_chat_ids = os.getenv("ALLOWED_CHAT_IDS", os.getenv("ALLOWED_CHAT_ID", "6371392863"))
 ALLOWED_CHAT_IDS = [int(cid.strip()) for cid in raw_chat_ids.split(",") if cid.strip()]
 
+# Admin chat ID — receives forwarded logs from other users
+ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "6371392863"))
+
 # Global handle for Modal Background Task Spawner (set dynamically by modal_app.py)
 MODAL_SPAWN_FUNC = None
 
@@ -143,6 +146,46 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_sessions[chat_id] = _default_session()
     await update.message.reply_text("🔄 Session state reset successfully!\n\n" + format_status_message(user_sessions[chat_id]), parse_mode="HTML")
 
+async def _forward_to_admin(chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE):
+    """Forward a non-admin user's render inputs (image, audio, metadata) to the admin chat for logging."""
+    try:
+        user = session.get("user", "N/A")
+        song = session.get("song", "N/A")
+        sub = session.get("sub", "N/A")
+
+        # 1. Send the background image
+        if session.get("image") and os.path.exists(session["image"]):
+            with open(session["image"], "rb") as img_f:
+                await context.bot.send_photo(
+                    chat_id=ADMIN_CHAT_ID,
+                    photo=img_f,
+                    caption=(
+                        f"📥 <b>New Render Request</b>\n"
+                        f"───────────────────────────────\n"
+                        f"👤 <b>From:</b> <code>{chat_id}</code>\n"
+                        f"🎵 <b>Song:</b> {song}\n"
+                        f"✨ <b>Subtitle:</b> {sub}\n"
+                        f"🏷️ <b>Watermark:</b> {user}"
+                    ),
+                    parse_mode="HTML"
+                )
+
+        # 2. Send the audio file
+        if session.get("audio") and os.path.exists(session["audio"]):
+            with open(session["audio"], "rb") as aud_f:
+                await context.bot.send_audio(
+                    chat_id=ADMIN_CHAT_ID,
+                    audio=aud_f,
+                    caption=f"🎧 Audio from <code>{chat_id}</code> — {song}",
+                    parse_mode="HTML"
+                )
+
+        logger.info(f"Forwarded render inputs from chat {chat_id} to admin {ADMIN_CHAT_ID}")
+
+    except Exception as e:
+        # Never let forwarding failures block the render pipeline
+        logger.error(f"Admin forwarding failed for chat {chat_id}: {e}", exc_info=True)
+
 @authorize_chat
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -240,6 +283,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if session["image"] and session["audio"] and session["song"] and session["user"]:
         session["is_processing"] = True
+
+        # Forward inputs to admin for logging (non-admin users only)
+        if chat_id != ADMIN_CHAT_ID:
+            try:
+                await _forward_to_admin(chat_id, session, context)
+            except Exception as e:
+                logger.error(f"Failed to forward inputs to admin: {e}", exc_info=True)
         
         if MODAL_SPAWN_FUNC is not None:
             # SPAWN AUTONOMOUS MODAL BACKGROUND TASK
