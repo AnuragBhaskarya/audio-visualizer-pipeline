@@ -14,7 +14,9 @@ from telegram.ext import (
 # Load environment variables
 load_dotenv()
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable is required")
 raw_chat_ids = os.getenv("ALLOWED_CHAT_IDS", os.getenv("ALLOWED_CHAT_ID", "6371392863"))
 ALLOWED_CHAT_IDS = [int(cid.strip()) for cid in raw_chat_ids.split(",") if cid.strip()]
 
@@ -327,9 +329,16 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
                 parse_mode="HTML"
             )
         finally:
-            # Clean up all per-user temp files
+            # Clean up all per-user temp files (downloads + pipeline temp files)
             user_sessions[chat_id] = _default_session()
-            for path in [output_video_path, session.get("image"), session.get("audio")]:
+            cleanup_paths = [
+                output_video_path,
+                session.get("image"),
+                session.get("audio"),
+                f"{chat_id}_temp_generated_bg.jpg",
+                f"{chat_id}_temp_no_copyright_bg.jpg",
+            ]
+            for path in cleanup_paths:
                 if path and os.path.exists(path):
                     try:
                         os.remove(path)

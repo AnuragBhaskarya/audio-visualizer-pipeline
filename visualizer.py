@@ -72,7 +72,8 @@ def render_chunk(args):
     target_w = _worker_params['target_w']
     target_h = _worker_params['target_h']
     fps = _worker_params['fps']
-    chunk_filename = f"temp_chunk_{chunk_id}.mp4"
+    job_prefix = _worker_params.get('job_prefix', '')
+    chunk_filename = f"{job_prefix}temp_chunk_{chunk_id}.mp4"
     
     command = [
         _ffmpeg_exe,
@@ -252,11 +253,11 @@ def render_chunk(args):
     process.wait()
     return chunk_filename
 
-def build_visualizer(audio_path, image_path, output_final_path="output_visualizer.mp4", target_w=1280, target_h=720, fps=60):
+def build_visualizer(audio_path, image_path, output_final_path="output_visualizer.mp4", target_w=1280, target_h=720, fps=60, job_id=None):
     t_vis_start = time.time()
     vis_stats = {}
+    job_prefix = f"{job_id}_" if job_id else ""
     
-    output_video_path = "temp_video.mp4"
     num_bars = 4
     
     print(f"Loading audio ({audio_path}) and image ({image_path})...")
@@ -425,7 +426,7 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
         
     vis_stats["anim_precomp"] = time.time() - t0
     
-    params = {'target_w': target_w, 'target_h': target_h, 'fps': fps}
+    params = {'target_w': target_w, 'target_h': target_h, 'fps': fps, 'job_prefix': job_prefix}
     ffmpeg_exe = im_ffmpeg.get_ffmpeg_exe()
     
     t0 = time.time()
@@ -447,7 +448,8 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
     vis_stats["chunk_rendering"] = time.time() - t0
     
     t0 = time.time()
-    with open("concat.txt", "w") as f:
+    concat_file = f"{job_prefix}concat.txt"
+    with open(concat_file, "w") as f:
         for cf in chunk_files:
             f.write(f"file '{cf}'\n")
             
@@ -456,7 +458,7 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
         '-y',
         '-f', 'concat',
         '-safe', '0',
-        '-i', 'concat.txt',
+        '-i', concat_file,
         '-i', audio_path,
         '-c:v', 'copy',
         '-c:a', 'aac',
@@ -465,8 +467,8 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
     ]
     subprocess.run(concat_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     
-    if os.path.exists("concat.txt"):
-        os.remove("concat.txt")
+    if os.path.exists(concat_file):
+        os.remove(concat_file)
     for cf in chunk_files:
         if os.path.exists(cf):
             os.remove(cf)

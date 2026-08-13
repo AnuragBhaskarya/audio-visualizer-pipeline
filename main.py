@@ -52,7 +52,8 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
         final_video_path, vis_stats = build_visualizer(
             audio_path=audio_path,
             image_path=temp_bg_path,
-            output_final_path=output_video
+            output_final_path=output_video,
+            job_id=job_id
         )
         
         t_pipe_total = time.time() - t_pipe_start
@@ -72,15 +73,8 @@ def run_pipeline(image_path, audio_path, song_name, subtitle="EDIT AUDIO", usern
         print("=" * 65)
         
         return output_video, temp_bg_path, no_copyright_path, pipeline_stats
-
     finally:
-        # Clean up temp files
-        for tmp in [temp_bg_path, no_copyright_path]:
-            if tmp and os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
+        pass
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Full Audio Visualizer Pipeline")

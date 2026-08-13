@@ -281,7 +281,9 @@ def set_webhook():
     from dotenv import load_dotenv
     load_dotenv()
     
-    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "8988427246:AAGE0zXawGS5Oc6Jx14ZGQXWrKeWAXc5cKk")
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not bot_token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable is required")
     webhook_url = "https://dekamukul013--audio-visualizer-pipeline-telegram-webhook.modal.run"
     
     print("=" * 60)

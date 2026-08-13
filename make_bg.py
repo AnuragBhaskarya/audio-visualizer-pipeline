@@ -50,7 +50,7 @@ def draw_red_no_copyright_banner(img, font_path):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     milker_font_path = os.path.join(script_dir, "assets", "Milker.otf")
     if not os.path.exists(milker_font_path):
-        milker_font_path = "/home/so9ic/coding/Cyber/audio_visualizer/assets/Milker.otf"
+        milker_font_path = "/root/assets/Milker.otf"
         
     try:
         font_nc = ImageFont.truetype(milker_font_path, 84)
@@ -258,7 +258,7 @@ def create_background(input_path, song_name, subtitle="EDIT AUDIO", username="SO
         script_dir = os.path.dirname(os.path.abspath(__file__))
         font_path = os.path.join(script_dir, "LEMONMILK-Bold.otf")
         if not os.path.exists(font_path):
-            font_path = "/home/so9ic/coding/Cyber/LEMONMILK-Bold.otf"
+            font_path = "/root/LEMONMILK-Bold.otf"
         
         base_title_size = 175
         max_title_width = 1450
