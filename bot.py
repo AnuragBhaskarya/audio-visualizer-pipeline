@@ -143,6 +143,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @authorize_chat
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    session = get_session(chat_id)
+    if session["is_processing"]:
+        await update.message.reply_text("⏳ Cannot reset while a render is in progress. Please wait!")
+        return
     user_sessions[chat_id] = _default_session()
     await update.message.reply_text("🔄 Session state reset successfully!\n\n" + format_status_message(user_sessions[chat_id]), parse_mode="HTML")
 
@@ -198,7 +202,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     caption = msg.caption if msg.caption else None
     
-    if caption and not session["song"]:
+    if caption and not session["song"] and not session.get("awaiting_watermark"):
         session["song"] = caption.strip()
         logger.info(f"Captured song name from caption: {session['song']}")
 
@@ -313,7 +317,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             asyncio.create_task(process_and_send_video(chat_id, context))
 
 async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYPE):
-    session = user_sessions[chat_id]
+    # Snapshot session data NOW so a mid-render /reset can't corrupt it
+    session = dict(user_sessions[chat_id])
     output_video_path = f"downloads/output_{chat_id}.mp4"
     
     # Acquire render slot (blocks if MAX_CONCURRENT_RENDERS already running)
