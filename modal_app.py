@@ -164,7 +164,9 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
 
     async def _send_all_media():
         try:
-            async with Bot(token=bot_token) as tg_bot:
+            from telegram.request import HTTPXRequest
+            request = HTTPXRequest(read_timeout=120, write_timeout=120, connect_timeout=30)
+            async with Bot(token=bot_token, request=request) as tg_bot:
                 # 1. Send Final Edit Background Photo
                 print(f"[LOG] Uploading Photo 1: Final Edit Background to Telegram Chat ID {chat_id}...")
                 with open(temp_final_bg_path, "rb") as f1:
