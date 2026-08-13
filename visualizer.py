@@ -344,15 +344,57 @@ def build_visualizer(audio_path, image_path, output_final_path="output_visualize
     t0 = time.time()
     total_frames = int(math.ceil(duration * fps))
     
+    # --- Bass-onset-driven intensity for natural one-shot shakes ---
+    # Detects individual bass hits via rising-edge analysis and fires a single
+    # decaying pulse per onset. Non-bass sounds get very subtle ambient shake (1-5%).
+
+    # Step 1: Bass energy at STFT frame rate (already smoothed via attack/release)
+    bass_stft = all_bars[0, :]
+
+    # Step 2: Detect onsets — only rising edges (positive first derivative)
+    bass_diff = np.diff(bass_stft, prepend=0)
+    bass_rise = np.maximum(bass_diff, 0)
+
+    # Step 3: Pick significant onsets with a refractory period so sustained
+    # bass (e.g. a long 808) only triggers ONE shake regardless of duration
+    if np.any(bass_rise > 0):
+        rise_threshold = np.percentile(bass_rise[bass_rise > 0], 65)
+    else:
+        rise_threshold = 1e-6
+
+    min_gap = int(0.12 * sr / 512)  # ~120ms refractory period between onsets
+    onset_list = []
+    last_onset = -min_gap
+    for k in range(len(bass_rise)):
+        if bass_rise[k] > rise_threshold and (k - last_onset) >= min_gap:
+            onset_list.append(k)
+            last_onset = k
+
+    # Step 4: Normalize bass energy for proportional onset strength
+    bass_nonzero = bass_stft[bass_stft > 0]
+    bass_peak = np.percentile(bass_nonzero, 95) if len(bass_nonzero) > 0 else 1.0
+
+    # Step 5: Build intensities — single exponential decay pulse per bass onset
     intensities = np.zeros(total_frames)
+    decay_frames = int(0.3 * fps)   # 300ms decay window
+    decay_rate = 18.0               # Fast exponential falloff
+    for si in onset_list:
+        t_onset = si * 512.0 / sr
+        strength = min(bass_stft[si] / max(bass_peak, 1e-6), 1.0)
+        vf = int(t_onset * fps)
+        for f in range(vf, min(vf + decay_frames, total_frames)):
+            val = strength * math.exp(-((f - vf) / fps) * decay_rate)
+            if val > intensities[f]:
+                intensities[f] = val
+
+    # Step 6: Very subtle ambient shake from mids/highs (caps at ~5%)
     for i in range(total_frames):
-        t_sec = i / fps
-        for b in reversed(beat_times):
-            if b <= t_sec:
-                diff = t_sec - b
-                if diff < 0.3:
-                    intensities[i] = math.exp(-diff * 18)
-                break
+        stft_idx = min(int((i / fps * sr) / 512), all_bars.shape[1] - 1)
+        ambient = all_bars[1, stft_idx] * 0.03 + all_bars[2, stft_idx] * 0.01
+        if ambient > intensities[i]:
+            intensities[i] = ambient
+
+    intensities = np.clip(intensities, 0.0, 1.0)
                 
     t_arr = np.arange(total_frames) / fps
     wiggle_x_arr = np.sin(t_arr * 0.5) * 6 + np.sin(t_arr * 0.2) * 4
