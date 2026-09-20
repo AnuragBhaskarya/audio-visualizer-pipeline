@@ -23,7 +23,8 @@ image = (
         "python-dotenv",
         "httpx",
         "fastapi[standard]",
-        "imageio-ffmpeg"
+        "imageio-ffmpeg",
+        "openai"
     )
     # Pre-warm numba JIT cache during image build — bakes compiled .nbi/.nbc
     # files into the Docker layer so cold starts skip the 31s JIT penalty.
@@ -45,6 +46,7 @@ image = (
     .add_local_file("LEMONMILK-Bold.otf", "/root/LEMONMILK-Bold.otf")
     .add_local_file("assets/Milker.otf", "/root/assets/Milker.otf")
     .add_local_file("bot.py", "/root/bot.py")
+    .add_local_file("caption_generator.py", "/root/caption_generator.py")
 )
 
 @app.function(
@@ -104,11 +106,14 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
 
 @app.function(
     image=image,
-    secrets=[modal.Secret.from_name("visualizer-secrets")],
+    secrets=[
+        modal.Secret.from_name("visualizer-secrets"),
+        modal.Secret.from_name("groq-secret")
+    ],
     scaledown_window=2,
     timeout=600
 )
-def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes, song_name: str, subtitle: str, username: str):
+def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes, song_name: str, subtitle: str, username: str, full_song: str = None):
     """
     Autonomous Modal Background Task.
     Executes 16-core video rendering and sends 2 Background Images + final .mp4 video & benchmark report directly to Telegram!
@@ -142,6 +147,20 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
     asyncio.run(_send_status())
 
     print("[LOG] Triggering 16-Core Parallel Cloud Rendering function...")
+    
+    # We run the remote call in a ThreadPoolExecutor so we can also generate caption concurrently
+    import concurrent.futures
+    caption_future = None
+    if chat_id == 6371392863 and full_song:
+        def run_caption():
+            from caption_generator import fetch_song_details, generate_caption_async
+            import asyncio
+            itunes_data = fetch_song_details(full_song)
+            return asyncio.run(generate_caption_async(full_song, itunes_data, username))
+        
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        caption_future = executor.submit(run_caption)
+
     video_bytes, final_bg_bytes, no_copyright_bg_bytes, stats = render_visualizer_modal.remote(
         image_bytes=image_bytes,
         audio_bytes=audio_bytes,
@@ -216,6 +235,25 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
                     parse_mode="HTML"
                 )
                 print("[LOG SUCCESS] Performance benchmark report delivered!")
+
+                # 5. Send generated caption if available
+                if caption_future:
+                    try:
+                        generated_caption = caption_future.result()
+                        if generated_caption:
+                            caption_file_path = f"/tmp/caption_{chat_id}.txt"
+                            with open(caption_file_path, "w", encoding="utf-8") as f:
+                                f.write(generated_caption)
+                            with open(caption_file_path, "rb") as cap_f:
+                                await tg_bot.send_document(
+                                    chat_id=chat_id,
+                                    document=cap_f,
+                                    caption="📝 <b>AI-Generated SEO Caption</b>",
+                                    parse_mode="HTML"
+                                )
+                            os.remove(caption_file_path)
+                    except Exception as e:
+                        print(f"[ERROR] Failed to send caption: {e}")
 
         except Exception as e:
             print(f"[CRITICAL ERROR] Failed sending media to Telegram: {e}")
