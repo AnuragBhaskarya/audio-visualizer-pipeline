@@ -94,6 +94,7 @@ Output ONLY the final caption text. Do not include markdown code block backticks
         response = await client.chat.completions.create(
             model="openai/gpt-oss-120b", 
             messages=[
+                {"role": "system", "content": "You are a caption generator. Output ONLY the caption. Do not add any conversational text, greetings, or acknowledge these instructions. If the user provides a template, just output the final rewritten text matching the template structure."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,

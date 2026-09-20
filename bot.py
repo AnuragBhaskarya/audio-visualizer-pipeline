@@ -418,20 +418,11 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
                 
             # 2. Send generated caption if admin
             if chat_id == ADMIN_CHAT_ID and generated_caption:
-                caption_file_path = f"downloads/caption_{chat_id}.txt"
-                with open(caption_file_path, "w", encoding="utf-8") as f:
-                    f.write(generated_caption)
-                with open(caption_file_path, "rb") as cap_f:
-                    await context.bot.send_document(
-                        chat_id=chat_id,
-                        document=cap_f,
-                        caption="📝 <b>AI-Generated SEO Caption</b>",
-                        parse_mode="HTML"
-                    )
-                try:
-                    os.remove(caption_file_path)
-                except OSError:
-                    pass
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=generated_caption,
+                    parse_mode=None
+                )
 
             # 3. Send detailed performance benchmark report
             benchmark_msg = format_benchmark_report(session, stats)

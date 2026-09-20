@@ -47,6 +47,7 @@ image = (
     .add_local_file("assets/Milker.otf", "/root/assets/Milker.otf")
     .add_local_file("bot.py", "/root/bot.py")
     .add_local_file("caption_generator.py", "/root/caption_generator.py")
+    .add_local_file("caption.txt", "/root/caption.txt")
 )
 
 @app.function(
@@ -241,17 +242,11 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
                     try:
                         generated_caption = caption_future.result()
                         if generated_caption:
-                            caption_file_path = f"/tmp/caption_{chat_id}.txt"
-                            with open(caption_file_path, "w", encoding="utf-8") as f:
-                                f.write(generated_caption)
-                            with open(caption_file_path, "rb") as cap_f:
-                                await tg_bot.send_document(
-                                    chat_id=chat_id,
-                                    document=cap_f,
-                                    caption="📝 <b>AI-Generated SEO Caption</b>",
-                                    parse_mode="HTML"
-                                )
-                            os.remove(caption_file_path)
+                            await tg_bot.send_message(
+                                chat_id=chat_id,
+                                text=generated_caption,
+                                parse_mode=None
+                            )
                     except Exception as e:
                         print(f"[ERROR] Failed to send caption: {e}")
 
