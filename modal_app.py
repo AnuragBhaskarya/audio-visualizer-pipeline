@@ -242,10 +242,12 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
                     try:
                         generated_caption = caption_future.result()
                         if generated_caption:
+                            import html
+                            escaped_caption = html.escape(generated_caption)
                             await tg_bot.send_message(
                                 chat_id=chat_id,
-                                text=generated_caption,
-                                parse_mode=None
+                                text=f"📝 <b>AI-Generated SEO Caption</b> (Tap to copy):\n\n<pre>{escaped_caption}</pre>",
+                                parse_mode="HTML"
                             )
                     except Exception as e:
                         print(f"[ERROR] Failed to send caption: {e}")

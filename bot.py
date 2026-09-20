@@ -418,10 +418,12 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
                 
             # 2. Send generated caption if admin
             if chat_id == ADMIN_CHAT_ID and generated_caption:
+                import html
+                escaped_caption = html.escape(generated_caption)
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=generated_caption,
-                    parse_mode=None
+                    text=f"📝 <b>AI-Generated SEO Caption</b> (Tap to copy):\n\n<pre>{escaped_caption}</pre>",
+                    parse_mode="HTML"
                 )
 
             # 3. Send detailed performance benchmark report

@@ -82,9 +82,9 @@ Here is a highly effective, natural-sounding template for the caption that weave
 
 YOUR TASK:
 Rewrite the caption using the exact same structure as the TEMPLATE, but customize ALL the text, keywords, tags, and paragraphs specifically for the song "{track}" by {artist}.
-1. Keep the "Give Credit", "Social Media", and "Copyright & Fair Use Notice" sections exactly the same format, but you can leave them untouched. 
+1. Keep the "Give Credit", "Social Media", and "Copyright & Fair Use Notice" sections exactly the same format, but REPLACE any mention of the original template artist (e.g., Ice Spice) with the new artist's name ({artist}).
 2. Replace "@SO9iC" where appropriate with "@{username}".
-3. Under "Audio Details & Usage", write a completely new, 1-2 paragraph natural, engaging "yap" about the song. Weave in dynamic keywords (aesthetic, slowed, sped up, viral, tiktok audio, edit audio) very smoothly just like the template did for Ice Spice.
+3. Under "Audio Details & Usage", write a completely new, 1-2 paragraph natural, engaging "yap" about the song. Weave in dynamic keywords (aesthetic, slowed, sped up, viral, tiktok audio, edit audio) very smoothly just like the template did for its original song.
 4. Update the "Tags & Search Keywords" section with highly relevant tags and long-tail keywords for this specific artist and song.
 
 Output ONLY the final caption text. Do not include markdown code block backticks around it.
