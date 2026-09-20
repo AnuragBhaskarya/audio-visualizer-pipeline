@@ -60,7 +60,8 @@ def get_session(chat_id: int):
         user_sessions[chat_id] = _default_session()
     return user_sessions[chat_id]
 
-def format_status_message(session):
+def format_status_message(session, chat_id):
+    from config import ADMIN_CHAT_ID
     img_status = f"✅ {session['image_name']}" if session['image'] else "⏳ Waiting for image file..."
     aud_status = f"✅ {session['audio_name']}" if session['audio'] else "⏳ Waiting for audio file..."
     sng_status = f"✅ {session['song']}" if session['song'] else "⏳ Waiting for text (Song Title)..."
@@ -75,19 +76,35 @@ def format_status_message(session):
     if session.get('awaiting_watermark') or session['user']:
         wmk_status = f"✅ {session['user']}" if session['user'] else "⏳ Waiting for watermark text..."
         msg += f"<b>Watermark:</b>        {wmk_status}\n"
+        
+    if chat_id == ADMIN_CHAT_ID and (session.get('awaiting_full_song') or session.get('full_song')):
+        fs_status = f"✅ {session['full_song']}" if session.get('full_song') else "⏳ Waiting for Full Song Name..."
+        msg += f"<b>Full Song:</b>        {fs_status}\n"
 
     msg += "───────────────────────────────\n"
 
     if session['image'] and session['audio'] and session['song'] and session['user']:
         if session.get('awaiting_full_song'):
-            msg += "✏️ <b>Admin: Please send the FULL song name.</b>"
-        elif session.get('full_song') or (not session.get('awaiting_full_song') and session['user']):
+            msg += "✏️ <b>Admin: Please send the FULL song name (e.g. 'Ice Spice - Big Guy') for AI Caption Generation.</b>"
+        elif session.get('full_song') or (chat_id != ADMIN_CHAT_ID):
             msg += "🚀 <b>All inputs collected! Triggering 16-Core Modal Cloud Render...</b>"
     elif session.get('awaiting_watermark'):
-        msg += "✏️ <b>Now send the watermark text.</b>"
+        msg += "✏️ <b>Now send the watermark text you want on the video.</b>"
     else:
         msg += "👉 Send any missing file/text in any order! Use /reset to clear."
     return msg
+
+async def send_or_update_status(chat_id: int, session: dict, context):
+    old_msg_id = session.get("status_msg_id")
+    if old_msg_id:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=old_msg_id)
+        except Exception:
+            pass
+            
+    msg_text = format_status_message(session, chat_id)
+    new_msg = await context.bot.send_message(chat_id=chat_id, text=msg_text, parse_mode="HTML")
+    session["status_msg_id"] = new_msg.message_id
 
 def format_benchmark_report(session, stats):
     bg = stats["bg"]
@@ -140,7 +157,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1️⃣ An image file (photo, webp, png, document)\n"
         "2️⃣ An audio track (mp3, wav, flac, voice, document)\n"
         "3️⃣ A text message (Song Title)\n\n"
-        "<i>You can send them in ANY order! Once collected, I will ask for a watermark.</i>" + admin_note + "\n\n" + format_status_message(session),
+        "<i>You can send them in ANY order! Once collected, I will ask for a watermark.</i>" + admin_note + "\n\n" + format_status_message(session, chat_id),
         parse_mode="HTML"
     )
 
@@ -148,7 +165,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = get_session(chat_id)
-    await update.message.reply_text(format_status_message(session), parse_mode="HTML")
+    await send_or_update_status(chat_id, session, context)
 
 @authorize_chat
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -158,7 +175,8 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏳ Cannot reset while a render is in progress. Please wait!")
         return
     user_sessions[chat_id] = _default_session()
-    await update.message.reply_text("🔄 Session state reset successfully!\n\n" + format_status_message(user_sessions[chat_id]), parse_mode="HTML")
+    await update.message.reply_text("🔄 Session state reset successfully!")
+    await send_or_update_status(chat_id, user_sessions[chat_id], context)
 
 async def _forward_to_admin(chat_id: int, session: dict, context: ContextTypes.DEFAULT_TYPE):
     """Forward a non-admin user's render inputs (image, audio, metadata) to the admin chat for logging."""
@@ -293,26 +311,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info("Admin request: automatically set watermark to 'SO9iC'.")
             if not session.get("full_song") and not session.get("awaiting_full_song"):
                 session["awaiting_full_song"] = True
-                status_msg = format_status_message(session)
-                await update.message.reply_text(status_msg, parse_mode="HTML")
-                await update.message.reply_text(
-                    "✏️ <b>Media collected!</b>\n\nAdmin, please send the <b>FULL Song Name</b> (e.g. 'Ice Spice - Big Guy') for AI Caption Generation.",
-                    parse_mode="HTML"
-                )
+                await send_or_update_status(chat_id, session, context)
                 return
         else:
             if not session["user"] and not session.get("awaiting_watermark"):
                 session["awaiting_watermark"] = True
-                status_msg = format_status_message(session)
-                await update.message.reply_text(status_msg, parse_mode="HTML")
-                await update.message.reply_text(
-                    "✏️ <b>All media collected!</b>\n\nNow send the <b>watermark</b> text you want on the video.",
-                    parse_mode="HTML"
-                )
+                await send_or_update_status(chat_id, session, context)
                 return
 
-    status_msg = format_status_message(session)
-    await update.message.reply_text(status_msg, parse_mode="HTML")
+    await send_or_update_status(chat_id, session, context)
 
     if session["image"] and session["audio"] and session["song"] and session["user"]:
         # Block if admin hasn't provided full song yet
