@@ -84,9 +84,7 @@ def format_status_message(session, chat_id):
     msg += "───────────────────────────────\n"
 
     if session['image'] and session['audio'] and session['song'] and session['user']:
-        if session.get('awaiting_full_song'):
-            msg += "✏️ <b>Admin: Please send the FULL song name (e.g. 'Ice Spice - Big Guy') for AI Caption Generation.</b>"
-        elif session.get('full_song') or (chat_id != ADMIN_CHAT_ID):
+        if session.get('full_song') or (chat_id != ADMIN_CHAT_ID):
             msg += "🚀 <b>All inputs collected! Triggering 16-Core Modal Cloud Render...</b>"
     elif session.get('awaiting_watermark'):
         msg += "✏️ <b>Now send the watermark text you want on the video.</b>"
