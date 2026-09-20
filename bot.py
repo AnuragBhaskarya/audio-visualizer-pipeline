@@ -61,7 +61,6 @@ def get_session(chat_id: int):
     return user_sessions[chat_id]
 
 def format_status_message(session, chat_id):
-    from config import ADMIN_CHAT_ID
     img_status = f"✅ {session['image_name']}" if session['image'] else "⏳ Waiting for image file..."
     aud_status = f"✅ {session['audio_name']}" if session['audio'] else "⏳ Waiting for audio file..."
     sng_status = f"✅ {session['song']}" if session['song'] else "⏳ Waiting for text (Song Title)..."
