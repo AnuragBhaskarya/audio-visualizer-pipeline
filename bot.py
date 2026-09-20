@@ -124,13 +124,18 @@ def authorize_chat(func):
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     session = get_session(chat_id)
+    
+    admin_note = ""
+    if chat_id == ADMIN_CHAT_ID:
+        admin_note = "\n\n🔑 <b>ADMIN:</b> Send the FULL song name (e.g., 'Ice Spice - Big Guy') for iTunes tracking."
+        
     await update.message.reply_text(
         "👋 <b>Welcome to the Audio Visualizer Bot!</b>\n\n"
         "Send me:\n"
         "1️⃣ An image file (photo, webp, png, document)\n"
         "2️⃣ An audio track (mp3, wav, flac, voice, document)\n"
         "3️⃣ A text message (Song Title)\n\n"
-        "<i>You can send them in ANY order! Once collected, I will ask for a watermark.</i>\n\n" + format_status_message(session),
+        "<i>You can send them in ANY order! Once collected, I will ask for a watermark.</i>" + admin_note + "\n\n" + format_status_message(session),
         parse_mode="HTML"
     )
 
@@ -272,15 +277,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Received text song title: {session['song']}")
 
     # Check if all 3 media inputs are ready → prompt for watermark
-    if session["image"] and session["audio"] and session["song"] and not session["user"] and not session.get("awaiting_watermark"):
-        session["awaiting_watermark"] = True
-        status_msg = format_status_message(session)
-        await update.message.reply_text(status_msg, parse_mode="HTML")
-        await update.message.reply_text(
-            "✏️ <b>All media collected!</b>\n\nNow send the <b>watermark</b> text you want on the video.",
-            parse_mode="HTML"
-        )
-        return
+    if session["image"] and session["audio"] and session["song"] and not session["user"]:
+        if chat_id == ADMIN_CHAT_ID:
+            session["user"] = "SO9iC"
+            logger.info("Admin request: automatically set watermark to 'SO9iC'.")
+        elif not session.get("awaiting_watermark"):
+            session["awaiting_watermark"] = True
+            status_msg = format_status_message(session)
+            await update.message.reply_text(status_msg, parse_mode="HTML")
+            await update.message.reply_text(
+                "✏️ <b>All media collected!</b>\n\nNow send the <b>watermark</b> text you want on the video.",
+                parse_mode="HTML"
+            )
+            return
 
     status_msg = format_status_message(session)
     await update.message.reply_text(status_msg, parse_mode="HTML")
@@ -331,8 +340,10 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
         
         try:
             from main import run_pipeline
+            from caption_generator import fetch_song_details, generate_caption_async
             loop = asyncio.get_running_loop()
-            _video, _bg, _nc, stats = await loop.run_in_executor(
+            
+            task_video = loop.run_in_executor(
                 None,
                 lambda: run_pipeline(
                     image_path=session["image"],
@@ -344,6 +355,18 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
                     job_id=chat_id
                 )
             )
+            
+            async def run_caption_gen():
+                if chat_id == ADMIN_CHAT_ID:
+                    itunes_data = await loop.run_in_executor(None, fetch_song_details, session["song"])
+                    cap = await generate_caption_async(session["song"], itunes_data, session["user"])
+                    return cap
+                return None
+                
+            task_caption = asyncio.create_task(run_caption_gen())
+            
+            results, generated_caption = await asyncio.gather(task_video, task_caption)
+            _video, _bg, _nc, stats = results
             
             await context.bot.edit_message_text(
                 chat_id=chat_id,
@@ -368,7 +391,24 @@ async def process_and_send_video(chat_id: int, context: ContextTypes.DEFAULT_TYP
                     supports_streaming=True
                 )
                 
-            # 2. Send detailed performance benchmark report
+            # 2. Send generated caption if admin
+            if chat_id == ADMIN_CHAT_ID and generated_caption:
+                caption_file_path = f"downloads/caption_{chat_id}.txt"
+                with open(caption_file_path, "w", encoding="utf-8") as f:
+                    f.write(generated_caption)
+                with open(caption_file_path, "rb") as cap_f:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=cap_f,
+                        caption="📝 <b>AI-Generated SEO Caption</b>",
+                        parse_mode="HTML"
+                    )
+                try:
+                    os.remove(caption_file_path)
+                except OSError:
+                    pass
+
+            # 3. Send detailed performance benchmark report
             benchmark_msg = format_benchmark_report(session, stats)
             await context.bot.send_message(
                 chat_id=chat_id,

@@ -9,3 +9,4 @@ httpx
 fastapi[standard]
 modal
 imageio-ffmpeg
+openai
