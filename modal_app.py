@@ -4,8 +4,15 @@ import modal
 # Define Modal App Name
 app = modal.App("audio-visualizer-pipeline")
 
-# Shared Modal Dict for persisting user session state across webhook requests
-user_sessions = modal.Dict.from_name("audio-vis-user-sessions", create_if_missing=True)
+# ═══════════════════════════════════════════════════════════════
+# MODAL DICT — Persists session state across stateless webhook invocations
+# ═══════════════════════════════════════════════════════════════
+modal_session_dict = modal.Dict.from_name("audio-vis-user-sessions", create_if_missing=True)
+
+# ═══════════════════════════════════════════════════════════════
+# MODAL VOLUME — Persists downloaded files across webhook invocations
+# ═══════════════════════════════════════════════════════════════
+downloads_vol = modal.Volume.from_name("audio-vis-downloads", create_if_missing=True)
 
 # Define Modal Cloud Image with FFmpeg and dependencies
 image = (
@@ -50,6 +57,87 @@ image = (
     .add_local_file("caption.txt", "/root/caption.txt")
 )
 
+
+# ═══════════════════════════════════════════════════════════════
+# MODAL SESSION MANAGER — Dict-backed for webhook persistence
+# ═══════════════════════════════════════════════════════════════
+
+class ModalSessionManager:
+    """
+    Drop-in replacement for bot.SessionManager that persists sessions
+    across stateless webhook invocations using Modal Dict + Volume.
+    """
+
+    def __init__(self, modal_dict, downloads_base_dir="/downloads"):
+        self._dict = modal_dict
+        self._downloads_base = downloads_base_dir
+
+    async def get(self, chat_id: int):
+        import sys
+        sys.path.append("/root")
+        from bot import Session, SessionState
+
+        key = str(chat_id)
+        try:
+            data = self._dict[key]
+            session = Session.from_dict(data)
+            if session.is_expired and session.state != SessionState.PROCESSING:
+                session.cleanup_files()
+                session = Session(chat_id)
+                self._dict[key] = session.to_dict()
+            return session
+        except KeyError:
+            session = Session(chat_id)
+            self._dict[key] = session.to_dict()
+            return session
+
+    async def save(self, session):
+        """Persist session mutations to Modal Dict."""
+        self._dict[str(session.chat_id)] = session.to_dict()
+
+    async def reset(self, chat_id: int):
+        import sys
+        sys.path.append("/root")
+        from bot import Session
+
+        key = str(chat_id)
+        try:
+            data = self._dict[key]
+            old = Session.from_dict(data)
+            old.cleanup_files()
+        except KeyError:
+            pass
+
+        new_session = Session(chat_id)
+        self._dict[key] = new_session.to_dict()
+        return new_session
+
+    async def remove(self, chat_id: int):
+        import sys
+        sys.path.append("/root")
+        from bot import Session
+
+        key = str(chat_id)
+        try:
+            data = self._dict[key]
+            old = Session.from_dict(data)
+            old.cleanup_files()
+        except KeyError:
+            pass
+        try:
+            del self._dict[key]
+        except KeyError:
+            pass
+
+    async def cleanup_expired(self):
+        """No-op for webhook mode — expiry is handled in get()."""
+        pass
+
+
+# ═══════════════════════════════════════════════════════════════
+# 16-CORE CLOUD RENDER FUNCTION
+# ═══════════════════════════════════════════════════════════════
+
 @app.function(
     image=image,
     cpu=16.0,            # 16-Core parallel CPU rendering on Modal Cloud
@@ -69,7 +157,7 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
     print("=" * 60)
     print("EXECUTING VISUALIZER PIPELINE ON 16-CORE MODAL CLOUD")
     print("=" * 60)
-    
+
     temp_img_path = "/tmp/modal_input_img.jpg"
     temp_audio_path = "/tmp/modal_input_audio.mp3"
     temp_out_path = "/tmp/modal_output.mp4"
@@ -104,6 +192,11 @@ def render_visualizer_modal(image_bytes: bytes, audio_bytes: bytes, song_name: s
             os.remove(p)
 
     return video_bytes, final_bg_bytes, no_copyright_bg_bytes, stats
+
+
+# ═══════════════════════════════════════════════════════════════
+# AUTONOMOUS MODAL BACKGROUND TASK
+# ═══════════════════════════════════════════════════════════════
 
 @app.function(
     image=image,
@@ -148,7 +241,7 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
     asyncio.run(_send_status())
 
     print("[LOG] Triggering 16-Core Parallel Cloud Rendering function...")
-    
+
     # We run the remote call in a ThreadPoolExecutor so we can also generate caption concurrently
     import concurrent.futures
     caption_future = None
@@ -158,7 +251,7 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
             import asyncio
             itunes_data = fetch_song_details(full_song)
             return asyncio.run(generate_caption_async(full_song, itunes_data, username))
-        
+
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         caption_future = executor.submit(run_caption)
 
@@ -268,16 +361,23 @@ def process_and_send_modal(chat_id: int, image_bytes: bytes, audio_bytes: bytes,
     print("MODAL BACKGROUND TASK COMPLETED FINISHED")
     print("=" * 60)
 
+
+# ═══════════════════════════════════════════════════════════════
+# SERVERLESS TELEGRAM WEBHOOK (Stateful via Modal Dict + Volume)
+# ═══════════════════════════════════════════════════════════════
+
 @app.function(
     image=image,
     secrets=[modal.Secret.from_name("visualizer-secrets")],
+    volumes={"/downloads": downloads_vol},
     scaledown_window=2
 )
 @modal.fastapi_endpoint(method="POST")
 async def telegram_webhook(request_json: dict):
     """
     Serverless Telegram Webhook Endpoint on Modal.
-    Receives incoming updates from Telegram, updates state machine, and spawns background render task.
+    Sessions persist across invocations via Modal Dict.
+    File downloads persist via Modal Volume mounted at /downloads.
     """
     import sys
     sys.path.append("/root")
@@ -289,27 +389,44 @@ async def telegram_webhook(request_json: dict):
     if not bot_token:
         return {"status": "error", "message": "Missing TELEGRAM_BOT_TOKEN"}
 
-    # Inject Modal spawn handle into bot.py
+    # ── Inject Modal-backed session manager + spawn function ──
     bot.MODAL_SPAWN_FUNC = process_and_send_modal
+    bot.DOWNLOADS_BASE_DIR = "/downloads"
+    bot.sessions = ModalSessionManager(modal_session_dict, "/downloads")
 
     # Initialize bot application
     tg_app = ApplicationBuilder().token(bot_token).build()
-    
+
     # Register handlers from bot.py
     tg_app.add_handler(bot.CommandHandler("start", bot.start_command))
     tg_app.add_handler(bot.CommandHandler("status", bot.status_command))
     tg_app.add_handler(bot.CommandHandler("reset", bot.reset_command))
     tg_app.add_handler(bot.CommandHandler("cancel", bot.reset_command))
+    tg_app.add_handler(bot.CommandHandler("redo", bot.redo_command))
     tg_app.add_handler(bot.MessageHandler(bot.filters.ALL & ~bot.filters.COMMAND, bot.handle_message))
 
     await tg_app.initialize()
-    
+
+    # ── Reload Volume so any writes from previous invocations are visible ──
+    try:
+        downloads_vol.reload()
+    except Exception:
+        pass
+
     # Process update
-    update = Update.de_json(data=request_json, bot=tg_app.bot)
-    if update:
-        await tg_app.process_update(update)
+    try:
+        update = Update.de_json(data=request_json, bot=tg_app.bot)
+        if update:
+            await tg_app.process_update(update)
+    finally:
+        # ── Commit Volume writes so files persist across invocations ──
+        try:
+            downloads_vol.commit()
+        except Exception:
+            pass
 
     return {"status": "ok"}
+
 
 @app.local_entrypoint()
 def set_webhook():
@@ -317,16 +434,16 @@ def set_webhook():
     import httpx
     from dotenv import load_dotenv
     load_dotenv()
-    
+
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable is required")
     webhook_url = "https://dekamukul013--audio-visualizer-pipeline-telegram-webhook.modal.run"
-    
+
     print("=" * 60)
     print(f"Production Modal Webhook URL: {webhook_url}")
     print("Registering Webhook URL with Telegram API...")
-    
+
     resp = httpx.post(
         f"https://api.telegram.org/bot{bot_token}/setWebhook",
         data={"url": webhook_url}
